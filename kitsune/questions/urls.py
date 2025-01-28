@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.urls import re_path
+from django.urls import path, re_path
 
 from kitsune.flagit import views as flagit_views
 from kitsune.questions import views
@@ -29,16 +29,12 @@ urlpatterns = [
         views.metrics,
         name="questions.locale_metrics",
     ),
+    # Mozilla location service proxy url
+    path("mozilla/location/", views.aaq_location_proxy, name="questions.location_proxy"),
     # AAQ
     re_path(r"^new$", views.aaq, name="questions.aaq_step1"),
-    re_path(r"^new/(?P<product_key>[\w\-]+)$", views.aaq_step2, name="questions.aaq_step2"),
-    re_path(r"^new/(?P<product_key>[\w\-]+)/form$", views.aaq_step3, name="questions.aaq_step3"),
-    # maintain backwards compatibility with old aaq urls:
-    re_path(
-        r"^new/(?P<product_key>[\w\-]+)/(?P<category_key>[\w\-]+)",
-        views.aaq_step3,
-        name="questions.aaq_step3",
-    ),
+    re_path(r"^new/(?P<product_slug>[\w\-]+)$", views.aaq_step2, name="questions.aaq_step2"),
+    re_path(r"^new/(?P<product_slug>[\w\-]+)/form$", views.aaq_step3, name="questions.aaq_step3"),
     # TODO: Factor out `/(?P<question_id>\d+)` below
     re_path(r"^(?P<question_id>\d+)$", views.question_details, name="questions.details"),
     re_path(r"^(?P<question_id>\d+)/edit$", views.edit_question, name="questions.edit_question"),
@@ -97,6 +93,9 @@ urlpatterns = [
     re_path(r"^mark_spam$", views.mark_spam, name="questions.mark_spam"),
     re_path(r"^unmark_spam$", views.unmark_spam, name="questions.unmark_spam"),
     # Question lists
+    re_path(
+        r"^topic/(?P<topic_slug>[\w+\-\,]+)$", views.question_list, name="questions.list_by_topic"
+    ),
     re_path(r"^(?P<product_slug>[\w+\-\,]+)$", views.question_list, name="questions.list"),
     # Flag content ("Report this post")
     re_path(

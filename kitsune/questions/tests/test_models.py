@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
 from unittest import mock
 
+import waffle
 from actstream.models import Action, Follow
+from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.db.models import Q
-from taggit.models import Tag
 
 import kitsune.sumo.models
 from kitsune.flagit.models import FlaggedObject
-from kitsune.questions import config
+from kitsune.products.tests import ProductFactory, TopicFactory
 from kitsune.questions.models import (
     AlreadyTakenException,
     Answer,
@@ -32,6 +32,7 @@ from kitsune.questions.tests import (
 from kitsune.search.tests import Elastic7TestCase
 from kitsune.sumo import googleanalytics
 from kitsune.sumo.tests import TestCase
+from kitsune.tags.models import SumoTag
 from kitsune.tags.tests import TagFactory
 from kitsune.tags.utils import add_existing_tag
 from kitsune.users.tests import UserFactory
@@ -66,10 +67,10 @@ class TestAnswer(TestCase):
         FlaggedObject.objects.create(
             status=0, content_object=q, reason="language", creator_id=u.id
         )
-        self.assertEqual(1, FlaggedObject.objects.count())
+        self.assertEqual(1, FlaggedObject.objects.filter(reason="language").count())
 
         q.delete()
-        self.assertEqual(0, FlaggedObject.objects.count())
+        self.assertEqual(0, FlaggedObject.objects.filter(reason="language").count())
 
     def test_delete_answer_removes_flag(self):
         """Deleting an answer also removes the flags on that answer."""
@@ -81,10 +82,11 @@ class TestAnswer(TestCase):
         FlaggedObject.objects.create(
             status=0, content_object=a, reason="language", creator_id=u.id
         )
-        self.assertEqual(1, FlaggedObject.objects.count())
+        content_type = ContentType.objects.get_for_model(Answer)
+        self.assertEqual(1, FlaggedObject.objects.filter(content_type=content_type).count())
 
         a.delete()
-        self.assertEqual(0, FlaggedObject.objects.count())
+        self.assertEqual(0, FlaggedObject.objects.filter(content_type=content_type).count())
 
     def test_delete_last_answer_of_question(self):
         """Deleting the last_answer of a Question should update the question."""
@@ -199,20 +201,6 @@ class TestQuestionMetadata(TestCase):
         self.question.add_metadata(crash_id="1234567890")
         self.assertEqual("1234567890", self.question.metadata["crash_id"])
 
-    def test_product_property(self):
-        """Test question.product property."""
-        self.question.add_metadata(product="desktop")
-        self.assertEqual(config.products["desktop"], self.question.product_config)
-
-    def test_category_property(self):
-        """Test question.category property."""
-        self.question.add_metadata(product="desktop")
-        self.question.add_metadata(category="fix-problems")
-        self.assertEqual(
-            config.products["desktop"]["categories"]["fix-problems"],
-            self.question.category_config,
-        )
-
     def test_clear_mutable_metadata(self):
         """Make sure it works and clears the internal cache.
 
@@ -238,13 +226,16 @@ class TestQuestionMetadata(TestCase):
 
     def test_auto_tagging(self):
         """Make sure tags get applied based on metadata on first save."""
-        Tag.objects.create(slug="green", name="green")
-        Tag.objects.create(slug="fix-problems", name="Fix problems")
+        SumoTag.objects.get_or_create(name="green", defaults={"slug": "green"})
+        SumoTag.objects.get_or_create(name="Troubleshooting", defaults={"slug": "troubleshooting"})
+        SumoTag.objects.get_or_create(name="Firefox", defaults={"slug": "firefox"})
         q = self.question
-        q.add_metadata(product="desktop", category="fix-problems", ff_version="3.6.8", os="GREen")
+        q.product = ProductFactory(slug="firefox")
+        q.topic = TopicFactory(slug="troubleshooting")
+        q.add_metadata(ff_version="3.6.8", os="GREen")
         q.save()
         q.auto_tag()
-        tags_eq(q, ["desktop", "fix-problems", "Firefox 3.6.8", "Firefox 3.6", "green"])
+        tags_eq(q, ["firefox", "troubleshooting", "Firefox 3.6.8", "Firefox 3.6", "green"])
 
     def test_auto_tagging_aurora(self):
         """Make sure versions with prerelease suffix are tagged properly."""
@@ -529,7 +520,7 @@ class AddExistingTagTests(TestCase):
 
     def test_add_existing_no_such_tag(self):
         """Assert add_existing_tag doesn't work when the tag doesn't exist."""
-        with self.assertRaises(Tag.DoesNotExist):
+        with self.assertRaises(SumoTag.DoesNotExist):
             add_existing_tag("nonexistent tag", self.untagged_question.tags)
 
 
@@ -581,7 +572,7 @@ class QuestionVisitsTests(TestCase):
         q2 = QuestionFactory()
         q3 = QuestionFactory()
 
-        pageviews_by_question.return_value = (
+        pageviews_by_question.return_value = dict(
             row
             for row in (
                 (q1.id, 42),
@@ -598,7 +589,7 @@ class QuestionVisitsTests(TestCase):
         self.assertEqual(1337, QuestionVisits.objects.get(question_id=q3.id).visits)
 
         # Change the data and run again to cover the update case.
-        pageviews_by_question.return_value = (
+        pageviews_by_question.return_value = dict(
             row
             for row in (
                 (q1.id, 100),
@@ -663,3 +654,10 @@ class TestActions(TestCase):
         self.assertEqual(act.actor, ans.question.creator)
         self.assertEqual(act.verb, "marked as a solution")
         self.assertEqual(act.target, ans.question)
+
+    @mock.patch.object(waffle, "switch_is_active")
+    def test_create_question_creates_flag(self, switch_is_active):
+        """Creating a question also creates a flag."""
+        switch_is_active.return_value = True
+        QuestionFactory(title="Test Question", content="Lorem Ipsum Dolor")
+        self.assertEqual(1, FlaggedObject.objects.filter(reason="content_moderation").count())

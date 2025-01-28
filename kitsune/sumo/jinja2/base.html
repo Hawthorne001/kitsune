@@ -9,8 +9,11 @@
   {% if settings.GTM_CONTAINER_ID %}data-gtm-container-id="{{ settings.GTM_CONTAINER_ID }}"{% endif %}
   {% if ga_content_group %}data-ga-content-group="{{ ga_content_group }}"{% endif %}
   {% if ga_default_slug %}data-ga-default-slug="{{ ga_default_slug }}"{% endif %}
+  {% if ga_article_locale %}data-ga-article-locale="{{ ga_article_locale }}"{% endif %}
   {% if ga_topics %}data-ga-topics="{{ ga_topics }}"{% endif %}
-  {% if ga_products %}data-ga-products="{{ ga_products }}"{% endif %}>
+  {% if ga_products %}data-ga-products="{{ ga_products }}"{% endif %}
+  {% if settings.GA_CONSOLE_LOGGING %}data-ga-console-logging="true"{% endif %}
+  {% if settings.GA_DEBUG_MODE %}data-ga-debug-mode="true"{% endif %}>
 <head>
   {% include "includes/google-analytics.html" %}
 
@@ -112,9 +115,6 @@
   {% endif %}
 </div>
 
-{% block product_announcement %}
-{% endblock %}
-
 <header class="mzp-c-navigation sumo-nav">
   <div class="mzp-c-navigation-l-content">
     <div class="sumo-nav--container">
@@ -126,7 +126,12 @@
       <button data-sumo-toggle-nav="#main-navigation" class="sumo-nav--toggle-button" type="button" aria-controls="main-navigation">Menu</button>
       <a class="sumo-nav--avatar-button" data-sumo-toggle-nav="#profile-navigation" aria-controls="profile-navigation" aria-role="button">
         {% if user.is_authenticated %}
-        <img class="avatar" src="{{ profile_avatar(user) }}" alt="Avatar for Username">
+        <div class="avatar-container">
+          <img class="avatar" src="{{ profile_avatar(user) }}" alt="Avatar for Username">
+          {% if unread_message_count > 0 %}
+          <div class="avatar-container-message-alert"></div>
+          {% endif %}
+        </div>
         {% else %}
         <img class="avatar" src="{{ webpack_static('sumo/img/default-FFA-avatar.png') }}" alt="Avatar for Username">
         {% endif %}
@@ -231,7 +236,7 @@
         <section class="mzp-c-footer-col">
           <h5 class="mzp-c-footer-heading">{{ _('Mozilla') }}</h5>
           <ul class="mzp-c-footer-list">
-            <li><a href="https://www.mozilla.org/en-US/about/legal/fraud-report/">{{ _('Report Trademark Abuse') }}</a></li>
+            <li><a href="https://www.mozilla.org/about/legal/fraud-report/">{{ _('Report Trademark Abuse') }}</a></li>
             <li><a href="https://github.com/mozilla/kitsune/">{{ _('Source code') }}</a></li>
             <li><a href="https://twitter.com/firefox">{{ _('Twitter') }}</a></li>
             <li>
@@ -254,22 +259,22 @@
         <section class="mzp-c-footer-col">
           <h5 class="mzp-c-footer-heading">{{ _('Firefox') }}</h5>
           <ul class="mzp-c-footer-list">
-            <li><a href="https://www.mozilla.org/firefox/new/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Download') }}</a></li>
-            <li><a href="https://www.mozilla.org/firefox/new/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Firefox Desktop') }}</a></li>
-            <li><a href="https://www.mozilla.org/firefox/mobile/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Android Browser') }}</a></li>
-            <li><a href="https://www.mozilla.org/firefox/mobile/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('iOS Browser') }}</a></li>
-            <li><a href="https://www.mozilla.org/firefox/mobile/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Focus Browser') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/download/thanks/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Download') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/new/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Firefox desktop') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/android/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Android Browser') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/ios/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('iOS Browser') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/focus/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Focus Browser') }}</a></li>
           </ul>
         </section>
 
         <section class="mzp-c-footer-col">
           <h5 class="mzp-c-footer-heading">{{ _('Firefox for Developers') }}</h5>
           <ul class="mzp-c-footer-list">
-            <li><a href="https://www.mozilla.org/en-US/firefox/developer/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Developer Edition') }}</a></li>
-            <li><a href="https://www.mozilla.org/en-US/firefox/channel/desktop/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#beta">{{ _('Beta') }}</a></li>
-            <li><a href="https://www.mozilla.org/en-US/firefox/channel/android/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#beta">{{ _('Beta for Android') }}</a></li>
-            <li><a href="https://www.mozilla.org/en-US/firefox/channel/desktop/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#nightly">{{ _('Nightly') }}</a></li>
-            <li><a href="https://www.mozilla.org/en-US/firefox/channel/android/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#nightly">{{ _('Nightly for Android') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/developer/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral">{{ _('Developer Edition') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/channel/desktop/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#beta">{{ _('Beta') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/channel/android/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#beta">{{ _('Beta for Android') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/channel/desktop/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#nightly">{{ _('Nightly') }}</a></li>
+            <li><a href="https://www.mozilla.org/firefox/channel/android/?utm_source=support.mozilla.org&utm_campaign=footer&utm_medium=referral#nightly">{{ _('Nightly for Android') }}</a></li>
           </ul>
         </section>
 
@@ -309,7 +314,7 @@
 
         <section class="mzp-c-footer-col lang-col">
           <form class="mzp-c-language-switcher" method="get" action="#">
-            <a class="mzp-c-language-switcher-link" href="https://www.mozilla.org/locales/">{{ _('Language') }}</a>
+            <a class="mzp-c-language-switcher-link" href="{{ locale_picker_url }}">{{ _('Language') }}</a>
             <label for="mzp-c-language-switcher-select">{{ _('Language') }}</label>
             <select id="mzp-c-language-switcher-select" class="mzp-js-language-switcher-select"
              name="lang">
@@ -338,8 +343,8 @@
             <li><a href="https://www.mozilla.org/">{{ _('mozilla.org') }}</a></li>
             <li><a href="https://www.mozilla.org/about/legal/terms/mozilla/">{{ _('Terms of Service') }}</a></li>
             <li><a href="https://www.mozilla.org/privacy/websites/">{{ _('Privacy') }}</a></li>
-            <li><a href="https://www.mozilla.org/privacy/websites/#cookies">{{ _('Cookies') }}</a></li>
-            <li><a href="https://www.mozilla.org/en-US/contact/">{{ _('Contact') }}</a></li>
+            <li><a href="https://www.mozilla.org/privacy/websites/#user-choices">{{ _('Cookies') }}</a></li>
+            <li><a href="https://www.mozilla.org/contact/">{{ _('Contact') }}</a></li>
           </ul>
         </div>
       </div>
@@ -374,11 +379,6 @@
   {% else %}
     <script src="{{ static('jsi18n/{lang}/djangojs-min.js'|f(lang=request.LANGUAGE_CODE|lower)) }}"></script>
   {% endif %}
-{% endif %}
-
-{# Temporary Pontoon testing - bug 812176 #}
-{% if settings.STAGE %}
-  <script src="https://pontoon.mozilla.org/pontoon.js"></script>
 {% endif %}
 
 </body>

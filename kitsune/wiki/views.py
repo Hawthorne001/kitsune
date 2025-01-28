@@ -1,13 +1,13 @@
 import json
 import logging
 import time
-from datetime import datetime, time as datetime_time
+from datetime import datetime
+from datetime import time as datetime_time
 from functools import wraps
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import User
-
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
@@ -17,6 +17,7 @@ from django.forms.utils import ErrorList
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.utils.cache import patch_vary_headers
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy
 from django.utils.translation.trans_real import parse_accept_lang_header
@@ -31,7 +32,13 @@ from kitsune.sumo.i18n import normalize_language
 from kitsune.sumo.redis_utils import RedisError, redis_client
 from kitsune.sumo.templatetags.jinja_helpers import urlparams
 from kitsune.sumo.urlresolvers import reverse
-from kitsune.sumo.utils import get_next_url, paginate, smart_int, truncated_json_dumps
+from kitsune.sumo.utils import (
+    get_next_url,
+    paginate,
+    set_aaq_context,
+    smart_int,
+    truncated_json_dumps,
+)
 from kitsune.wiki.config import (
     CATEGORIES,
     COLLAPSIBLE_DOCUMENTS,
@@ -75,7 +82,6 @@ from kitsune.wiki.tasks import (
 )
 from kitsune.wiki.utils import get_visible_document_or_404, get_visible_revision_or_404
 
-
 log = logging.getLogger("k.wiki")
 
 
@@ -89,7 +95,7 @@ def doc_page_cache(view):
         if (
             request.user.is_authenticated
             or request.GET.get("redirect") == "no"
-            or request.session.get("product_key")
+            or request.session.get("product_slug")
             or settings.DEV
         ):
             return view(request, document_slug, *args, **kwargs)
@@ -105,8 +111,9 @@ def doc_page_cache(view):
 
         response = view(request, document_slug, *args, **kwargs)
 
-        # We only cache if the response returns HTTP 200.
-        if response.status_code == 200:
+        # We only cache if the response returns HTTP 200 and depends
+        # only on the URL, not anything in the request headers.
+        if (response.status_code == 200) and ("vary" not in response):
             cache.set(cache_key, (response.content, dict(list(response.headers.items()))))
 
         return response
@@ -121,6 +128,17 @@ def document(request, document_slug, document=None):
 
     fallback_reason = None
     full_locale_name = None
+    vary_on_accept_language = False
+
+    def maybe_vary_on_accept_language(response):
+        """
+        Patch the VARY header in the response to include "Accept-Language"
+        if the Accept-Language header could vary the response, and return
+        the response.
+        """
+        if vary_on_accept_language:
+            patch_vary_headers(response, ["accept-language"])
+        return response
 
     doc = get_visible_document_or_404(
         request.user,
@@ -158,7 +176,7 @@ def document(request, document_slug, document=None):
                 # fallback locale. The custom fallback locale is defined in the
                 # FALLBACK_LOCALES array in kitsune/wiki/config.py. See bug 800880
                 # for more details
-                fallback_locale = get_fallback_locale(doc, request)
+                fallback_locale, vary_on_accept_language = get_fallback_locale(doc, request)
 
                 # If a fallback locale is defined, show the document in that locale,
                 # otherwise continue with the document in the default language.
@@ -197,7 +215,7 @@ def document(request, document_slug, document=None):
         url = urlparams(
             redirect_url, query_dict=request.GET, redirectslug=doc.slug, redirectlocale=doc.locale
         )
-        return HttpResponseRedirect(url)
+        return maybe_vary_on_accept_language(HttpResponseRedirect(url))
 
     # Get "redirected from" doc if we were redirected:
     redirect_slug = request.GET.get("redirectslug")
@@ -215,16 +233,25 @@ def document(request, document_slug, document=None):
 
     products = doc.get_products()
     if len(products) < 1:
-        product = Product.objects.filter(visible=True)[0]
+        product = Product.active.filter(visible=True)[0]
     else:
-        product = products[0]
+        product = products.first()
 
-    product_topics = Topic.objects.filter(product=product, visible=True, parent=None)
+    # Set the AAQ context for the widget
+    set_aaq_context(request, product)
+
+    product_topics = Topic.active.filter(products=product, visible=True)
 
     # Create serialized versions of the document's associated products and topics
     # to be used within GA as parameters/dimensions.
     ga_products = f"/{'/'.join(products.order_by('slug').values_list('slug', flat=True))}/"
     ga_topics = f"/{'/'.join(doc.get_topics().order_by('slug').values_list('slug', flat=True))}/"
+    # Provide the actual locale of the document that will also be used as a GA parameter/dimension.
+    ga_article_locale = (
+        doc.parent.locale
+        if (fallback_reason == "translation_not_approved") and doc.parent
+        else doc.locale
+    )
 
     # Switching devices section
     switching_devices_product = switching_devices_topic = switching_devices_subtopics = None
@@ -236,9 +263,9 @@ def document(request, document_slug, document=None):
         ):
             raise Http404
 
-        switching_devices_product = Product.objects.get(slug="firefox")
-        switching_devices_topic = Topic.objects.get(
-            product=switching_devices_product, slug=settings.FIREFOX_SWITCHING_DEVICES_TOPIC
+        switching_devices_product = Product.active.get(slug="firefox")
+        switching_devices_topic = Topic.active.get(
+            products=switching_devices_product, slug=settings.FIREFOX_SWITCHING_DEVICES_TOPIC
         )
         switching_devices_subtopics = topics_for(
             request.user, product=switching_devices_product, parent=switching_devices_topic
@@ -260,15 +287,9 @@ def document(request, document_slug, document=None):
     # picking a product later.
     document_topics = doc.topics.order_by("display_order")
     if len(document_topics) > 0:
-        topic = document_topics[0]
-        first_topic = topic
-        while topic is not None:
-            breadcrumbs.append((topic.get_absolute_url(), topic.title))
-            topic = topic.parent
-        # Get the product
-        breadcrumbs.append((first_topic.product.get_absolute_url(), first_topic.product.title))
-    else:
-        breadcrumbs.append((product.get_absolute_url(), product.title))
+        topic = document_topics.first()
+        breadcrumbs.append((topic.get_absolute_url(product.slug), topic.title))
+    breadcrumbs.append((product.get_absolute_url(), product.title))
     # The list above was built backwards, so flip this.
     breadcrumbs.reverse()
     votes = HelpfulVote.objects.filter(revision=doc.current_revision).aggregate(
@@ -281,8 +302,11 @@ def document(request, document_slug, document=None):
         else 0
     )
 
+    is_first_revision = doc.revisions.filter(is_approved=True).count() == 1
+
     data = {
         "document": doc,
+        "is_first_revision": is_first_revision,
         "redirected_from": redirected_from,
         "contributors": contributors,
         "fallback_reason": fallback_reason,
@@ -292,6 +316,7 @@ def document(request, document_slug, document=None):
         "products": products,
         "ga_topics": ga_topics,
         "ga_products": ga_products,
+        "ga_article_locale": ga_article_locale,
         "related_products": doc.related_products.exclude(pk=product.pk),
         "breadcrumb_items": breadcrumbs,
         "document_css_class": document_css_class,
@@ -303,7 +328,7 @@ def document(request, document_slug, document=None):
         "product_titles": ", ".join(p.title for p in sorted(products, key=lambda p: p.title)),
     }
 
-    return render(request, "wiki/document.html", data)
+    return maybe_vary_on_accept_language(render(request, "wiki/document.html", data))
 
 
 def revision(request, document_slug, revision_id):
@@ -343,6 +368,7 @@ def list_documents(request, category=None):
 @login_required
 def new_document(request):
     """Create a new wiki document."""
+    products = Product.active.filter(visible=True)
     if request.method == "GET":
         doc_form = DocumentForm(initial_title=request.GET.get("title"))
         rev_form = RevisionForm()
@@ -352,7 +378,7 @@ def new_document(request):
             {
                 "document_form": doc_form,
                 "revision_form": rev_form,
-                "products": Product.objects.filter(visible=True),
+                "products": products,
             },
         )
 
@@ -372,7 +398,7 @@ def new_document(request):
         {
             "document_form": doc_form,
             "revision_form": rev_form,
-            "products": Product.objects.filter(visible=True),
+            "products": products,
         },
     )
 
@@ -569,11 +595,6 @@ def edit_document_metadata(request, document_slug, revision_id=None):
         post_data = request.POST.copy()
         post_data.update({"locale": request.LANGUAGE_CODE})
 
-        topics = []
-        for t in post_data.getlist("topics"):
-            topics.append(int(t))
-        post_data.setlist("topics", topics)
-
         doc_form = DocumentForm(
             post_data,
             instance=doc,
@@ -585,7 +606,6 @@ def edit_document_metadata(request, document_slug, revision_id=None):
             try:
                 doc = doc_form.save(None)
             except (TitleCollision, SlugCollision) as metadata_error:
-                # TODO: .add_error() when we upgrade to Django 1.7
                 errors = doc_form._errors.setdefault("title", ErrorList())
                 message = "The {type} you selected is already in use."
                 message = message.format(
@@ -640,7 +660,7 @@ def preview_revision(request):
         doc = get_visible_document_or_404(request.user, locale=locale, slug=slug)
         products = doc.get_products()
     else:
-        products = Product.objects.all()
+        products = Product.active.all()
 
     data = {"content": wiki_to_html(wiki_content, request.LANGUAGE_CODE), "products": products}
     return render(request, "wiki/preview.html", data)
@@ -1226,85 +1246,124 @@ def json_view(request):
 
 @require_POST
 @ratelimit("document-vote", "10/d")
-def helpful_vote(request, document_slug):
-    """Vote for Helpful/Not Helpful document"""
+def handle_vote(request, document_slug):
+    """Handle both helpful/unhelpful votes and unhelpful surveys."""
     if "revision_id" not in request.POST:
         return HttpResponseBadRequest()
 
+    if request.limited:
+        survey_response = render_to_string(
+            "wiki/includes/survey_form.html",
+            {"response_message": _("Thanks for your feedback!")},
+            request,
+        )
+        return HttpResponse(survey_response)
+
+    if vote_id := request.POST.get("vote_id"):
+        # Handle survey submission
+        vote = get_object_or_404(HelpfulVote, id=smart_int(vote_id))
+
+        # Only save the survey if there's no already one
+        if not vote.metadata.filter(key="survey").exists():
+            survey = request.POST.copy()
+            survey.pop("vote_id")
+            survey.pop("revision_id", None)
+
+            # Save the survey in JSON format, ensuring it doesn't exceed 600 chars
+            vote.add_metadata("survey", truncated_json_dumps(survey, 600, "comment"))
+        survey_response = render_to_string(
+            "wiki/includes/survey_form.html",
+            {"response_message": _("Thanks for your feedback!")},
+            request,
+        )
+        return HttpResponse(survey_response)
+
+    # Handle helpful/unhelpful voting
     revision = get_object_or_404(Revision, id=smart_int(request.POST["revision_id"]))
 
     if not revision.is_approved:
-        # I don't think it makes sense to vote for an unapproved revision.
         raise PermissionDenied
-
-    survey = None
 
     if revision.document.category == TEMPLATES_CATEGORY:
         return HttpResponseBadRequest()
 
+    survey_context = {}
+
     if not revision.has_voted(request):
-        ua = request.META.get("HTTP_USER_AGENT", "")[:1000]  # 1000 max_length
-        vote = HelpfulVote(revision=revision, user_agent=ua)
+        ua = request.META.get("HTTP_USER_AGENT", "")[:1000]  # Limit to 1000 characters
+        kwargs = {
+            "revision": revision,
+            "user_agent": ua,
+        }
+
+        if request.user.is_authenticated:
+            kwargs["creator"] = request.user
+        else:
+            kwargs["anonymous_id"] = request.anonymous.anonymous_id
+
+        vote = HelpfulVote.objects.create(**kwargs)
+        # Save metadata: referrer and search query (if available)
+        for name in ["referrer", "query", "source"]:
+            val = request.POST.get(name)
+            if val:
+                vote.add_metadata(name, val)
+
+        survey_context = {
+            "vote_id": vote.id,
+            "action_url": reverse("wiki.document_vote", args=[document_slug]),
+            "revision_id": revision.id,
+            "response_message": "",
+        }
 
         if "helpful" in request.POST:
             vote.helpful = True
-            message = _(
-                "Great to hear &mdash; thanks for the feedback! <br />"
-                "<span disabled class=helpful-button>&#x1F44D;</span>"
+            vote.save()
+            survey_context.update(
+                {
+                    "survey_type": "helpful",
+                    "survey_heading": _('You voted "Yes 👍" Please tell us more'),
+                    "survey_options": [
+                        {"value": "article-accurate", "text": _("Article is accurate")},
+                        {
+                            "value": "article-easy-to-understand",
+                            "text": _("Article is easy to understand"),
+                        },
+                        {"value": "article-helpful-visuals", "text": _("The visuals are helpful")},
+                        {
+                            "value": "article-informative",
+                            "text": _("Article provided the information I needed"),
+                        },
+                        {"value": "other", "text": _("Other")},
+                    ],
+                }
             )
         else:
-            message = _("Sorry to hear that.")
+            survey_context.update(
+                {
+                    "survey_type": "unhelpful",
+                    "survey_heading": _('You voted "No 👎" Please tell us more'),
+                    "survey_options": [
+                        {"value": "article-inaccurate", "text": _("Article is inaccurate")},
+                        {"value": "article-confusing", "text": _("Article is confusing")},
+                        {
+                            "value": "article-not-helpful-visuals",
+                            "text": _("Missing, unclear, or unhelpful visuals"),
+                        },
+                        {
+                            "value": "article-not-informative",
+                            "text": _("Article didn't provide the information I needed"),
+                        },
+                        {"value": "other", "text": _("Other")},
+                    ],
+                }
+            )
 
-        # If user is over the limit, don't save but pretend everything is ok.
-        if not request.limited:
-            if request.user.is_authenticated:
-                vote.creator = request.user
-            else:
-                vote.anonymous_id = request.anonymous.anonymous_id
-
-            vote.save()
-
-            # Send a survey if flag is enabled and vote wasn't helpful.
-            if "helpful" not in request.POST:
-                survey = render_to_string(
-                    "wiki/includes/unhelpful_survey.html", {"vote_id": vote.id}, request
-                )
-
-            # Save vote metadata: referrer and search query (if available)
-            for name in ["referrer", "query", "source"]:
-                val = request.POST.get(name)
-                if val:
-                    vote.add_metadata(name, val)
-    else:
-        message = _("You already voted on this Article.")
-
-    if request.headers.get("x-requested-with") == "XMLHttpRequest":
-        r = {"message": message}
-        if survey:
-            r.update(survey=survey)
-
-        return HttpResponse(json.dumps(r))
-
+    if request.headers.get("HX-Request") and survey_context:
+        survey_html = render_to_string("wiki/includes/survey_form.html", survey_context, request)
+        response = HttpResponse(survey_html)
+        response["HX-Trigger"] = json.dumps({"closeSurveyWidgets": {"url": request.path}})
+        return response
     return HttpResponseRedirect(revision.document.get_absolute_url())
-
-
-@require_POST
-def unhelpful_survey(request):
-    """Ajax only view: Unhelpful vote survey processing."""
-    vote = get_object_or_404(HelpfulVote, id=smart_int(request.POST.get("vote_id")))
-
-    # Only save the survey if it was for a not helpful vote and a survey
-    # doesn't exist for it already.
-    if not vote.helpful and not vote.metadata.filter(key="survey").exists():
-        # The survey is the posted data, minus the vote_id and button value.
-        survey = request.POST.copy()
-        survey.pop("vote_id")
-        survey.pop("button")
-
-        # Save the survey in JSON format, taking care not to exceed 1000 chars.
-        vote.add_metadata("survey", truncated_json_dumps(survey, 1000, "comment"))
-
-    return HttpResponse(json.dumps({"message": _("Thanks for making us better!")}))
 
 
 @require_GET
@@ -1592,8 +1651,8 @@ def _document_form_initial(document):
         "category": document.category,
         "is_localizable": document.is_localizable,
         "is_archived": document.is_archived,
-        "topics": Topic.objects.filter(document=document).values_list("id", flat=True),
-        "products": list(Product.objects.filter(document=document).values_list("id", flat=True)),
+        "topics": Topic.active.filter(document=document).values_list("id", flat=True),
+        "products": list(Product.active.filter(document=document).values_list("id", flat=True)),
         "related_documents": Document.objects.filter(related_documents=document).values_list(
             "id", flat=True
         ),
@@ -1630,24 +1689,22 @@ def _show_revision_warning(document, revision):
 
 
 def recent_revisions(request):
-    # Make writable
     request.GET = request.GET.copy()
-
     fragment = request.GET.pop("fragment", None)
     form = RevisionFilterForm(request.GET)
 
-    # We are going to ignore validation errors for the most part, but
-    # this is needed to call the functions that generate `cleaned_data`
-    # This helps in particular when bad user names are typed in.
+    # Validate the form to populate cleaned_data, even with invalid usernames.
     form.is_valid()
 
     filters = {}
-    # If something has gone very wrong, `cleaned_data` won't be there.
     if hasattr(form, "cleaned_data"):
         if form.cleaned_data.get("locale"):
             filters.update(document__locale=form.cleaned_data["locale"])
+
+        # Only apply user filter if there are valid users
         if form.cleaned_data.get("users"):
             filters.update(creator__in=form.cleaned_data["users"])
+
         start = form.cleaned_data.get("start")
         end = form.cleaned_data.get("end")
         if start or end:
@@ -1660,6 +1717,7 @@ def recent_revisions(request):
     c = {
         "revisions": revs,
         "form": form,
+        "locale": request.GET.get("locale", request.LANGUAGE_CODE),
     }
     if fragment:
         template = "wiki/includes/recent_revisions_fragment.html"
@@ -1704,7 +1762,12 @@ def what_links_here(request, document_slug):
 
 
 def get_fallback_locale(doc, request):
-    """Get best fallback local based on locale mapping"""
+    """
+    Attempt to find an acceptable fallback locale. Returns a tuple comprised of
+    the locale (None if no acceptable locale is found) and a boolean indicating
+    whether or not the incoming Accept-Language header could have been used to
+    determine the fallback locale.
+    """
 
     # Get locales that the current article is translated into.
     translated_locales = set(
@@ -1712,10 +1775,10 @@ def get_fallback_locale(doc, request):
     )
 
     # Build a list of the request locale and all the ACCEPT_LANGUAGE locales.
-    all_accepted_locales = [request.LANGUAGE_CODE.lower()]
+    all_acceptable_locales = [request.LANGUAGE_CODE.lower()]
     # Django's "parse_accept_lang_header()" always returns lowercase locales.
     accept_header = request.META.get("HTTP_ACCEPT_LANGUAGE") or ""
-    all_accepted_locales.extend(loc for loc, _ in parse_accept_lang_header(accept_header))
+    all_acceptable_locales.extend(loc for loc, _ in parse_accept_lang_header(accept_header))
 
     # For each locale specified in the user's ACCEPT_LANGUAGE header
     # check for, in order:
@@ -1724,20 +1787,27 @@ def get_fallback_locale(doc, request):
     #   * global overrides for the locale in settings.NON_SUPPORTED_LOCALES
     #   * wiki fallbacks for that locale
 
-    for locale in all_accepted_locales:
+    # In the loop below, return true for the second part of the result tuple
+    # only if we're past the first iteration, since only then have we used
+    # a locale from the incoming Accept-Language header. The first iteration
+    # of the loop only uses the locale provided in the incoming URL.
+
+    for i, locale in enumerate(all_acceptable_locales):
         if locale == settings.WIKI_DEFAULT_LANGUAGE.lower():
-            return None
+            return (None, i > 0)
 
         elif (normalized_locale := normalize_language(locale)) in translated_locales:
             # This path handles the settings.NON_SUPPORTED_LOCALES cases as well.
-            return normalized_locale
+            return (normalized_locale, i > 0)
 
         for fallback in FALLBACK_LOCALES.get(locale, []):
             if fallback in translated_locales:
-                return fallback
+                return (fallback, i > 0)
 
-    # If all fails, return None as fallback Locale
-    return None
+    # If all else fails, return None as the fallback locale, and return "True" for
+    # the second part of the result tuple, because if we've reached this point, the
+    # incoming Accept-Language header could have influenced the result.
+    return (None, True)
 
 
 def pocket_article(request, article_id=None, document_slug=None, extra_path=None):

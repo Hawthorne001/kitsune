@@ -1,13 +1,13 @@
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-
 from rest_framework import generics, serializers, status
 
 from kitsune.products.models import Product, Topic
 from kitsune.sumo.api_utils import GenericAPIException, LocaleNegotiationMixin
-from kitsune.wiki.models import Document
+from kitsune.sumo.i18n import normalize_language
 from kitsune.wiki.config import REDIRECT_HTML
+from kitsune.wiki.models import Document
 
 
 class DocumentShortSerializer(serializers.ModelSerializer):
@@ -20,10 +20,10 @@ class DocumentDetailSerializer(DocumentShortSerializer):
     summary = serializers.CharField(read_only=True)
     url = serializers.CharField(source="get_absolute_url", read_only=True)
     products = serializers.SlugRelatedField(
-        many=True, slug_field="slug", queryset=Product.objects.all()
+        many=True, slug_field="slug", queryset=Product.active.all()
     )
     topics = serializers.SlugRelatedField(
-        many=True, slug_field="slug", queryset=Topic.objects.all()
+        many=True, slug_field="slug", queryset=Topic.active.all()
     )
 
     class Meta:
@@ -41,7 +41,7 @@ class DocumentList(LocaleNegotiationMixin, generics.ListAPIView):
             self.request.user, category__in=settings.IA_DEFAULT_CATEGORIES
         )
 
-        locale = self.get_locale()
+        locale = normalize_language(self.get_locale())
         product = self.request.query_params.get("product")
         topic = self.request.query_params.get("topic")
         is_template = bool(self.request.query_params.get("is_template", False))
@@ -83,7 +83,8 @@ class DocumentDetail(LocaleNegotiationMixin, generics.RetrieveAPIView):
     serializer_class = DocumentDetailSerializer
 
     def get_object(self):
-        queryset = Document.objects.visible(self.request.user, locale=self.get_locale())
+        locale = normalize_language(self.get_locale())
+        queryset = Document.objects.visible(self.request.user, locale=locale)
         obj = get_object_or_404(queryset, **self.kwargs)
         self.check_object_permissions(self.request, obj)
         return obj

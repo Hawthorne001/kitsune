@@ -1,0 +1,95 @@
+{% extends "flagit/flagit_base.html" %}
+{% from "flagit/includes/macros.html" import filter_dropdown %}
+
+{% block flagged_items %}
+  {% for object in objects %}
+    <li id="flagged-item-{{ object.id }}" class="{{ object.content_type }}">
+      <div class="flagged-item-content">
+        <hgroup>
+          <div class="flagged-item-header">
+            <h2 class="sumo-card-heading">{{ _('Flagged {t}')|f(t=object.content_type) }}</h2>
+            <span>
+              {% if object.assignee %}
+                {{ _('Assigned: {username}')|f(username=object.assignee.username) }}
+              {% else %}
+                {{ _('Unassigned') }}
+              {% endif %}
+            </span>
+          </div>
+          {% if object.notes %}
+            {% if object.content_type.model == 'question' %}
+              <p class="notes">{{ _('Additional notes:') }} &nbsp;<a target="_blank" href="{{ object.content_object.get_absolute_url() }}">{{ object.notes }}</a></p>
+            {% else %}
+              <p class="notes">{{ _('Additional notes:') }} {{ object.notes }}</p>
+            {% endif %}
+          {% endif %}
+        </hgroup>
+        <div class="wrap">
+          {% if object.content_object %}
+            {% include 'flagit/includes/flagged_%s.html' % object.content_type.model %}
+          {% else %}
+            <p>{{ _('{t} with id={id} no longer exists.')|f(t=object.content_type, id=object.object_id) }}</p>
+          {% endif %}
+          <h3 class="sumo-card-heading"><br>{{ _('Update Status:') }}</h3>
+          <form class="update inline-form"
+                hx-post="{{ object.form_action }}"
+                hx-disabled-elt="find select, find input"
+                hx-indicator=".wait"
+                hx-target="#flagged-item-{{ object.id }}"
+                hx-swap="delete">
+            {% csrf_token %}
+            <select name="status">
+              <option value="">{{ _('Please select...') }}</option>
+              <option value="1">{{ _('Content categorization is updated.') }}</option>
+              <option value="2">{{ _('Content is appropriately categorized.') }}</option>
+            </select>
+            <input id="update-status-button-{{ object.content_object.id }}" type="submit"
+                   class="sumo-button primary-button button-lg btn" value={{ _('Update') }} />
+            <img class="wait" src="{{ webpack_static('sumo/img/spinner.gif') }}" alt="{{ _('Please wait...') }}" />
+          </form>
+        </div>
+      </div>
+    </li>
+  {% else %}
+    <p>{{ _('There is no content pending moderation.') }}</p>
+  {% endfor %}
+  {{ objects|paginator }}
+{% endblock %}
+
+{% block filter_dropdown %}
+  {{ filter_dropdown(
+      form_id='product-filter-form',
+      select_id='flagit-product-filter',
+      label='Filter by product:',
+      name='product',
+      default_option='All products',
+      options=products,
+      selected_filter=selected_product
+  ) }}
+  {{ filter_dropdown(
+      form_id='assignee-filter-form',
+      select_id='flagit-assignee-filter',
+      label='Filter by assignee:',
+      name='assignee',
+      default_option='All assignees',
+      options=assignees,
+      selected_filter=selected_assignee
+  ) }}
+  <div id="my-queue-tools" data-current-username="{{ current_username }}"
+       {% if not (selected_assignee and (selected_assignee == current_username)) %} hidden{% endif %}>
+    <label>{{ _('Manage my queue') }}:</label>
+    <form hx-post="" hx-target="#flagged-queue" hx-select="#flagged-queue">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="assign">
+      <input class="sumo-button primary-button button-lg btn" type="submit" value="{{ _('Assign more') }}" />
+    </form>
+    <form id="my-queue-unassign" hx-post="" hx-target="#flagged-queue" hx-select="#flagged-queue">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="unassign">
+      <input class="sumo-button secondary-button button-lg btn" type="submit" value="{{ _('Unassign all') }}" />
+    </form>
+  </div>
+{% endblock %}
+{# Hide the deactivation log on content moderation #}
+{% block deactivation_log %}
+{% endblock %}

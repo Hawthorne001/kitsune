@@ -3,7 +3,9 @@ import logging
 import random
 from collections import OrderedDict
 from datetime import date, datetime, timedelta
+from typing import List, Optional, Tuple, Union
 
+import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
@@ -15,10 +17,13 @@ from django.db.models import Q
 from django.db.models.functions import Now
 from django.http import (
     Http404,
+    HttpRequest,
     HttpResponse,
     HttpResponseBadRequest,
     HttpResponseForbidden,
+    HttpResponsePermanentRedirect,
     HttpResponseRedirect,
+    JsonResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -27,13 +32,12 @@ from django.utils.translation import gettext_lazy as _lazy
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from django_user_agents.utils import get_user_agent
 from sentry_sdk import capture_exception
-from taggit.models import Tag
 from zenpy.lib.exception import APIException
 
 from kitsune.access.decorators import login_required, permission_required
 from kitsune.customercare.forms import ZendeskForm
 from kitsune.flagit.models import FlaggedObject
-from kitsune.products.models import Product, Topic
+from kitsune.products.models import Product, Topic, TopicSlugHistory
 from kitsune.questions import config
 from kitsune.questions.events import QuestionReplyEvent, QuestionSolvedEvent
 from kitsune.questions.feeds import AnswersFeed, QuestionsFeed, TaggedQuestionsFeed
@@ -44,7 +48,7 @@ from kitsune.questions.forms import (
     NewQuestionForm,
     WatchQuestionForm,
 )
-from kitsune.questions.models import Answer, AnswerVote, Question, QuestionLocale, QuestionVote
+from kitsune.questions.models import AAQConfig, Answer, AnswerVote, Question, QuestionVote
 from kitsune.questions.utils import get_featured_articles, get_mobile_product_from_ua
 from kitsune.sumo.decorators import ratelimit
 from kitsune.sumo.i18n import split_into_language_and_path
@@ -53,10 +57,13 @@ from kitsune.sumo.urlresolvers import reverse
 from kitsune.sumo.utils import (
     build_paged_url,
     get_next_url,
+    has_aaq_config,
     is_ratelimited,
     paginate,
+    set_aaq_context,
     simple_paginate,
 )
+from kitsune.tags.models import SumoTag
 from kitsune.tags.utils import add_existing_tag
 from kitsune.tidings.events import ActivationRequestFailed
 from kitsune.tidings.models import Watch
@@ -112,16 +119,22 @@ def product_list(request):
     return render(
         request,
         "questions/product_list.html",
-        {"products": Product.objects.with_question_forums(request)},
+        {"products": Product.active.with_question_forums(request)},
     )
 
 
-def question_list(request, product_slug):
+def question_list(request, product_slug=None, topic_slug=None):
     """View the list of questions."""
     if settings.DISABLE_QUESTIONS_LIST_GLOBAL:
         messages.add_message(request, messages.WARNING, "You cannot list questions at this time.")
         return HttpResponseRedirect("/")
 
+    topic_navigation = any(
+        [
+            request.resolver_match.url_name == "questions.list_by_topic",
+            topic_slug and not product_slug,
+        ]
+    )
     filter_ = request.GET.get("filter")
     owner = request.GET.get("owner", request.session.get("questions_owner", "all"))
     show = request.GET.get("show")
@@ -131,20 +144,19 @@ def question_list(request, product_slug):
 
     tagged = request.GET.get("tagged")
     tags = None
-    topic_slug = request.GET.get("topic")
+    topic_slug = request.GET.get("topic", "") or topic_slug
 
     order = request.GET.get("order", "updated")
     if order not in ORDER_BY:
         order = "updated"
     sort = request.GET.get("sort", "desc")
 
-    product_slugs = product_slug.split(",")
+    product_slugs = product_slug.split(",") if product_slug else []
     products = []
 
-    if len(product_slugs) > 1 or product_slugs[0] != "all":
+    if product_slugs and ("all" not in product_slugs):
         for slug in product_slugs:
             products.append(get_object_or_404(Product, slug=slug))
-        multiple = len(products) > 1
     else:
         # We want all products (no product filtering at all).
         if settings.DISABLE_QUESTIONS_LIST_ALL:
@@ -152,19 +164,25 @@ def question_list(request, product_slug):
                 request, messages.WARNING, "You cannot list all questions at this time."
             )
             return HttpResponseRedirect("/")
+        products = Product.active.with_question_forums(request)
 
-        products = None
-        multiple = True
+    multiple = (len(products) > 1) or ("all" in product_slugs)
+    product_with_aaq = False
+    if products and not multiple:
+        product_with_aaq = has_aaq_config(products[0])
 
-    if topic_slug and not multiple:
-        # We don't support topics when there is more than one product.
-        # There is no way to know what product the topic applies to.
+    topics = []
+
+    if topic_slug:
         try:
-            topic = Topic.objects.get(slug=topic_slug, product=products[0])
-        except Topic.DoesNotExist:
-            topic = None
-    else:
-        topic = None
+            topic_history = TopicSlugHistory.objects.get(slug=topic_slug)
+
+            return redirect(question_list, topic_slug=topic_history.topic.slug)
+        except TopicSlugHistory.DoesNotExist:
+            ...
+        topics = Topic.active.filter(visible=True, slug=topic_slug)
+        if not topics:
+            raise Http404()
 
     question_qs = Question.objects
 
@@ -226,7 +244,7 @@ def question_list(request, product_slug):
 
     if tagged:
         tag_slugs = tagged.split(",")
-        tags = Tag.objects.filter(slug__in=tag_slugs)
+        tags = SumoTag.objects.active().filter(slug__in=tag_slugs)
         if tags:
             for t in tags:
                 question_qs = question_qs.filter(tags__name__in=[t.name])
@@ -242,18 +260,16 @@ def question_list(request, product_slug):
 
     # Filter by products.
     if products:
-        # This filter will match if any of the products on a question have the
-        # correct id.
         question_qs = question_qs.filter(product__in=products)
 
     # Filter by topic.
-    if topic:
+    if topics:
         # This filter will match if any of the topics on a question have the
         # correct id.
-        question_qs = question_qs.filter(topic__id=topic.id)
+        question_qs = question_qs.filter(topic__in=topics)
 
     # Filter by locale for AAQ locales, and by locale + default for others.
-    if request.LANGUAGE_CODE in QuestionLocale.objects.locales_list():
+    if request.LANGUAGE_CODE in AAQConfig.objects.locales_list():
         locale_query = Q(locale=request.LANGUAGE_CODE)
     else:
         locale_query = Q(locale=request.LANGUAGE_CODE)
@@ -291,14 +307,14 @@ def question_list(request, product_slug):
         recent_answered_percent = 0
 
     # List of products to fill the selector.
-    product_list = Product.objects.filter(visible=True)
+    product_list = Product.active.filter(visible=True)
 
-    # List of topics to fill the selector. Only shows if there is exactly
-    # one product selected.
-    if products and not multiple:
-        topic_list = Topic.objects.filter(visible=True, product=products[0])[:10]
+    # List of topics to fill the selector.
+    topic_list = Topic.active.filter(in_aaq=True, visible=True)
+    if product_slugs:
+        topic_list = topic_list.filter(products__in=products).distinct()
     else:
-        topic_list = []
+        topic_list = topic_list.filter(in_nav=True)
 
     # Store current filters in the session
     if request.user.is_authenticated:
@@ -321,11 +337,15 @@ def question_list(request, product_slug):
         "recent_answered_percent": recent_answered_percent,
         "product_list": product_list,
         "products": products,
-        "product_slug": product_slug,
+        "topic_slug": topic_slug,
         "multiple_products": multiple,
-        "all_products": product_slug == "all",
+        "all_products": product_slug == "all" or topic_navigation,
         "topic_list": topic_list,
-        "topic": topic,
+        "topics": topics,
+        "selected_topic_slug": topics[0].slug if topics else None,
+        "product_slug": product_slug,
+        "topic_navigation": topic_navigation,
+        "has_aaq_config": product_with_aaq,
     }
 
     if products:
@@ -405,6 +425,7 @@ def question_details(
     """View the answers to a question."""
     ans_ = _answers_data(request, question_id, form, watch_form, answer_preview)
     question = ans_["question"]
+    set_aaq_context(request, question.product)
 
     if question.is_spam and not request.user.has_perm("flagit.can_moderate"):
         raise Http404("No question matches the given query.")
@@ -423,7 +444,7 @@ def question_details(
 
     extra_kwargs.update(ans_)
 
-    products = Product.objects.with_question_forums(request)
+    products = Product.active.with_question_forums(request)
     topics = topics_for(request.user, product=question.product)
 
     related_documents = question.related_documents
@@ -434,6 +455,7 @@ def question_details(
         {
             "all_products": products,
             "all_topics": topics,
+            "all_tags": SumoTag.objects.active(),
             "related_documents": related_documents,
             "related_questions": related_questions,
             "question_images": question_images,
@@ -454,33 +476,57 @@ def question_details(
 @permission_required("questions.change_question")
 def edit_details(request, question_id):
     try:
-        product = Product.objects.get(id=request.POST.get("product"))
-        topic = Topic.objects.get(id=request.POST.get("topic"), product=product)
+        product = Product.active.get(id=request.POST.get("product"))
+        topic = Topic.active.get(id=request.POST.get("topic"), products=product)
         locale = request.POST.get("locale")
 
         # If locale is not in AAQ_LANGUAGES throws a ValueError
-        tuple(QuestionLocale.objects.locales_list()).index(locale)
+        tuple(AAQConfig.objects.locales_list()).index(locale)
     except (Product.DoesNotExist, Topic.DoesNotExist, ValueError):
         return HttpResponseBadRequest()
 
     question = get_object_or_404(Question, pk=question_id)
+    existing_tags = SumoTag.objects.active().filter(
+        Q(name=question.topic.slug) | Q(name=question.product.slug)
+    )
+    question.tags.remove(*existing_tags)
     question.product = product
     question.topic = topic
     question.locale = locale
     question.save()
-
+    question.auto_tag()
+    question.clear_cached_tags()
     return redirect(reverse("questions.details", kwargs={"question_id": question_id}))
 
 
-def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False):
+def aaq_location_proxy(request):
+    """Proxy request from the Mozilla service to our form."""
+    response = requests.get(settings.MOZILLA_LOCATION_SERVICE)
+    return JsonResponse(response.json())
+
+
+def aaq(request, product_slug=None, step=1, is_loginless=False):
     """Ask a new question."""
+    # After the migration to a DB based AAQ, we need to account for
+    # product slugs that were not present in the questions config.
+    should_redirect = True
+    match product_slug:
+        case "desktop":
+            product_slug = "firefox"
+        case "focus":
+            product_slug = "focus-firefox"
+        case _:
+            should_redirect = False
+
+    if should_redirect:
+        return HttpResponsePermanentRedirect(reverse("questions.aaq_step2", args=[product_slug]))
 
     template = "questions/new_question.html"
 
     # Check if the user is using a mobile device,
     # render step 2 if they are
-    product_key = product_key or request.GET.get("product")
-    if product_key is None:
+    product_slug = product_slug or request.GET.get("product")
+    if product_slug is None:
         change_product = False
         if request.GET.get("q") == "change_product":
             change_product = True
@@ -489,43 +535,37 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
 
         if is_mobile_device and not change_product:
             user_agent = request.META.get("HTTP_USER_AGENT", "")
-            product_key = get_mobile_product_from_ua(user_agent)
-            if product_key:
+            if product_slug := get_mobile_product_from_ua(user_agent):
                 # redirect needed for InAAQMiddleware
-                step_2 = reverse("questions.aaq_step2", kwargs={"product_key": product_key})
+                step_2 = reverse("questions.aaq_step2", args=[product_slug])
                 return HttpResponseRedirect(step_2)
 
-    # Return 404 if the product doesn't exist in config
-    product_config = config.products.get(product_key)
-    if product_key and not product_config:
-        raise Http404
-
-    # If the selected product doesn't exist in DB, render a 404
-    if step > 1:
+    # Return 404 if the products does not have an AAQ form or if it is archived
+    product = None
+    products_with_aaqs = Product.active.filter(aaq_configs__is_active=True).distinct()
+    if product_slug:
         try:
-            product = Product.objects.get(slug=product_config["product"])
+            product = Product.active.get(slug=product_slug)
         except Product.DoesNotExist:
             raise Http404
-        has_public_forum = product.questions_enabled(locale=request.LANGUAGE_CODE)
-        has_ticketing_support = product.has_ticketing_support
-        request.session["aaq_context"] = {
-            "key": product_key,
-            "has_public_forum": has_public_forum,
-            "has_ticketing_support": has_ticketing_support,
-        }
+        else:
+            if product not in products_with_aaqs:
+                raise Http404
 
     context = {
-        "products": config.products,
-        "current_product": product_config,
+        "products": products_with_aaqs,
+        "current_product": product,
         "current_step": step,
         "host": Site.objects.get_current().domain,
         "is_loginless": is_loginless,
         "ga_content_group": f"aaq-step-{step}",
     }
-
+    # If the selected product doesn't exist in DB, render a 404
     if step > 1:
-        context["has_ticketing_support"] = has_ticketing_support
-        context["ga_products"] = f"/{product.slug}/"
+        set_aaq_context(request, product)
+        has_public_forum = product.questions_enabled(locale=request.LANGUAGE_CODE)
+        context["has_ticketing_support"] = product.has_ticketing_support
+        context["ga_products"] = f"/{product_slug}/"
 
     if step == 2:
         context["featured"] = get_featured_articles(product, locale=request.LANGUAGE_CODE)
@@ -535,7 +575,7 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
         context["cancel_url"] = get_next_url(request) or (
             reverse("products.product", args=[product.slug])
             if is_loginless
-            else reverse("questions.aaq_step2", args=[product_key])
+            else reverse("questions.aaq_step2", args=[product_slug])
         )
 
         # Check if the selected product has a forum in the user's locale
@@ -553,7 +593,7 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
 
             return HttpResponseRedirect(path)
 
-        if has_ticketing_support:
+        if product.has_ticketing_support:
             zendesk_form = ZendeskForm(
                 data=request.POST or None,
                 product=product,
@@ -563,7 +603,7 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
 
             if zendesk_form.is_valid() and not is_ratelimited(request, "loginless", "3/d"):
                 try:
-                    zendesk_form.send(request.user, product_config)
+                    zendesk_form.send(request.user, product)
                     email = zendesk_form.cleaned_data["email"]
                     messages.add_message(
                         request,
@@ -593,9 +633,8 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
             return render(request, template, context)
 
         form = NewQuestionForm(
-            product=product_config,
+            product=product,
             data=request.POST or None,
-            initial={"category": category_key},
         )
         context["form"] = form
 
@@ -604,7 +643,6 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
                 user=request.user,
                 locale=request.LANGUAGE_CODE,
                 product=product,
-                product_config=product_config,
             )
 
             if form.cleaned_data.get("is_spam"):
@@ -642,23 +680,26 @@ def aaq(request, product_key=None, category_key=None, step=1, is_loginless=False
     return render(request, template, context)
 
 
-def aaq_step2(request, product_key):
+def aaq_step2(request, product_slug):
     """Step 2: The product is selected."""
-    return aaq(request, product_key=product_key, step=2)
+    return aaq(request, product_slug=product_slug, step=2)
 
 
-def aaq_step3(request, product_key, category_key=None):
+def aaq_step3(request, product_slug):
     """Step 3: Show full question form."""
 
     # Since removing the @login_required decorator for MA form
     # need to catch unauthenticated, non-MA users here """
     referer = request.META.get("HTTP_REFERER", "")
-    is_loginless = (product_key in settings.LOGIN_EXCEPTIONS) and any(
+    is_loginless = (product_slug in settings.LOGIN_EXCEPTIONS) and any(
         uri in referer
         for uri in settings.MOZILLA_ACCOUNT_ARTICLES
         + [
             path.removeprefix(f"/{request.LANGUAGE_CODE}")
-            for path in (reverse("users.auth"), reverse("questions.aaq_step3", args=[product_key]))
+            for path in (
+                reverse("users.auth"),
+                reverse("questions.aaq_step3", args=[product_slug]),
+            )
         ]
     )
 
@@ -668,8 +709,7 @@ def aaq_step3(request, product_key, category_key=None):
     return aaq(
         request,
         is_loginless=is_loginless,
-        product_key=product_key,
-        category_key=category_key,
+        product_slug=product_slug,
         step=3,
     )
 
@@ -687,44 +727,60 @@ def edit_question(request, question_id):
     ct = ContentType.objects.get_for_model(question)
     images = ImageAttachment.objects.filter(content_type=ct, object_id=question.pk)
 
-    if request.method == "GET":
-        initial = question.metadata.copy()
-        initial.update(title=question.title, content=question.content)
-        form = EditQuestionForm(
-            product=question.product_config,
-            initial=initial,
+    if request.headers.get("x-requested-with") == "XMLHttpRequest" and request.method == "POST":
+        data = json.loads(request.body)
+        new_topic_id = data.get("topic")
+        try:
+            new_topic = Topic.objects.get(id=new_topic_id)
+        except Topic.DoesNotExist:
+            return JsonResponse({"error": "Topic not found"}, status=404)
+
+        if new_topic != question.topic:
+            existing_tags = SumoTag.objects.active().filter(name=question.topic.slug)
+            question.tags.remove(*existing_tags)
+            question.topic = new_topic
+            question.update_topic_counter += 1
+            question.save()
+            question.auto_tag()
+            question.clear_cached_tags()
+
+        return JsonResponse({"updated_topic": str(new_topic)})
+
+    initial_data = {
+        "title": question.title,
+        "content": question.content,
+        **question.metadata,
+    }
+
+    form = EditQuestionForm(
+        data=request.POST or None,
+        product=question.product,
+        initial=initial_data,
+    )
+
+    if form.is_valid():
+        question.title = form.cleaned_data["title"]
+        question.content = form.cleaned_data["content"]
+        question.updated_by = user
+        question.save(update=True)
+
+        if form.cleaned_data.get("is_spam"):
+            _add_to_moderation_queue(request, question)
+
+        # TODO: Factor all this stuff up from here and new_question into
+        # the form, which should probably become a ModelForm.
+        question.clear_mutable_metadata()
+        question.add_metadata(**form.cleaned_metadata)
+
+        return HttpResponseRedirect(
+            reverse("questions.details", kwargs={"question_id": question.id})
         )
-    else:
-        form = EditQuestionForm(
-            data=request.POST,
-            product=question.product_config,
-        )
-
-        if form.is_valid():
-            question.title = form.cleaned_data["title"]
-            question.content = form.cleaned_data["content"]
-            question.updated_by = user
-
-            question.save(update=True)
-
-            if form.cleaned_data.get("is_spam"):
-                _add_to_moderation_queue(request, question)
-
-            # TODO: Factor all this stuff up from here and new_question into
-            # the form, which should probably become a ModelForm.
-            question.clear_mutable_metadata()
-            question.add_metadata(**form.cleaned_metadata)
-
-            return HttpResponseRedirect(
-                reverse("questions.details", kwargs={"question_id": question.id})
-            )
 
     context = {
         "question": question,
         "form": form,
         "images": images,
-        "current_product": question.product_config,
-        "current_category": question.category_config,
+        "current_product": question.product,
     }
 
     return render(request, "questions/edit_question.html", context)
@@ -962,7 +1018,7 @@ def add_tag(request, question_id):
 
     try:
         question, canonical_name = _add_tag(request, question_id)
-    except Tag.DoesNotExist:
+    except SumoTag.DoesNotExist:
         template_data = _answers_data(request, question_id)
         template_data["tag_adding_error"] = UNAPPROVED_TAG
         template_data["tag_adding_value"] = request.POST.get("tag-name", "")
@@ -984,18 +1040,26 @@ def add_tag_async(request, question_id):
     """Add a (case-insensitive) tag to question asyncronously. Return empty.
 
     If the question already has the tag, do nothing.
-
     """
+
+    if request.content_type == "application/json":
+        tag_ids = json.loads(request.body).get("tags", [])
+        question, tags = _add_tag(request, question_id, tag_ids)
+        question.clear_cached_tags()
+        if not tags:
+            return JsonResponse({"error": "Some tags do not exist or are invalid"}, status=400)
+        return JsonResponse({"message": "Tags updated successfully.", "data": {"tags": tags}})
+
     try:
         question, canonical_name = _add_tag(request, question_id)
-    except Tag.DoesNotExist:
+    except SumoTag.DoesNotExist:
         return HttpResponse(
             json.dumps({"error": str(UNAPPROVED_TAG)}), content_type="application/json", status=400
         )
 
     if canonical_name:
         question.clear_cached_tags()
-        tag = Tag.objects.get(name=canonical_name)
+        tag = SumoTag.objects.get(name=canonical_name)
         tag_url = urlparams(
             reverse("questions.list", args=[question.product_slug]), tagged=tag.slug
         )
@@ -1035,13 +1099,26 @@ def remove_tag_async(request, question_id):
     If question doesn't have that tag, do nothing. Return value is JSON.
 
     """
+
+    question = get_object_or_404(Question, pk=question_id)
+    if request.content_type == "application/json":
+        data = json.loads(request.body)
+        tag_id = data.get("tagId")
+
+        try:
+            tag = SumoTag.objects.get(id=tag_id)
+        except SumoTag.DoesNotExist:
+            return JsonResponse({"error": "Tag does not exist."}, status=400)
+
+        question.tags.remove(tag)
+        question.clear_cached_tags()
+        return JsonResponse({"message": f"Tag '{tag.name}' removed successfully."})
+
     name = request.POST.get("name")
     if name:
-        question = get_object_or_404(Question, pk=question_id)
         question.tags.remove(name)
         question.clear_cached_tags()
         return HttpResponse("{}", content_type="application/json")
-
     return HttpResponseBadRequest(
         json.dumps({"error": str(NO_TAG)}), content_type="application/json"
     )
@@ -1333,7 +1410,7 @@ def metrics(request, locale_code=None):
     data = {
         "current_locale": locale_code,
         "product": product,
-        "products": Product.objects.filter(visible=True),
+        "products": Product.active.filter(visible=True),
     }
 
     return render(request, template, data)
@@ -1380,27 +1457,29 @@ def _answers_data(request, question_id, form=None, watch_form=None, answer_previ
     }
 
 
-def _add_tag(request, question_id):
-    """Add a named tag to a question, creating it first if appropriate.
+def _add_tag(
+    request: HttpRequest, question_id: int, tag_ids: Optional[List[int]] = None
+) -> Tuple[Optional[Question], Union[List[str], str, None]]:
+    """Add tags to a question by tag IDs or tag name.
 
-    Tag name (case-insensitive) must be in request.POST['tag-name'].
+    If tag_ids is provided, adds tags with those IDs to the question.
+    Otherwise looks for tag name in request.POST['tag-name'].
 
-    If there is no such tag and the user is not allowed to make new tags, raise
-    Tag.DoesNotExist. If no tag name is provided, return None. Otherwise,
-    return the canonicalized tag name.
-
+    Returns a tuple of (question, tag_names) if successful.
+    Returns (None, None) if no valid tags found or SumoTag.DoesNotExist raised.
     """
-    tag_name = request.POST.get("tag-name", "").strip()
-    if tag_name:
-        question = get_object_or_404(Question, pk=question_id)
-        try:
-            canonical_name = add_existing_tag(tag_name, question.tags)
-        except Tag.DoesNotExist:
-            if request.user.has_perm("taggit.add_tag"):
-                question.tags.add(tag_name)  # implicitly creates if needed
-                canonical_name = tag_name
-            else:
-                raise
+
+    question = get_object_or_404(Question, pk=question_id)
+    if tag_ids:
+        sumo_tags = SumoTag.objects.active().filter(id__in=tag_ids)
+        if len(tag_ids) != len(sumo_tags):
+            return None, None
+        question.tags.add(*sumo_tags)
+        return question, list(sumo_tags.values_list("name", flat=True))
+
+    if tag_name := request.POST.get("tag-name", "").strip():
+        # This raises SumoTag.DoesNotExist if the tag doesn't exist.
+        canonical_name = add_existing_tag(tag_name, question.tags)
 
         return question, canonical_name
 

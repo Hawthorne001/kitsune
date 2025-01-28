@@ -1,7 +1,14 @@
 {% extends "wiki/base.html" %}
 
 {% from "wiki/includes/sidebar_modules.html" import document_tools, document_notifications, related_products_sidebar with context %}
-{% from "wiki/includes/document_macros.html" import contributor_list, document_title, document_messages, document_metadata, document_content, inpage_contact_cta, topic_list, related_documents  %}
+{% from "wiki/includes/document_macros.html" import contributor_list,
+                                                    document_title,
+                                                    document_messages,
+                                                    document_content,
+                                                    inpage_contact_cta,
+                                                    topic_list,
+                                                    related_documents,
+                                                    document_metadata with context %}
 {% from "wiki/includes/document_macros.html" import vote_form with context %}
 {% from "includes/common_macros.html" import download_firefox, sumo_banner %}
 {% from "questions/includes/aaq_macros.html" import aaq_widget %}
@@ -15,15 +22,6 @@
 {% set extra_body_attrs = {"data-document-id": document.id} %}
 {% set ga_content_group = "kb-article" %}
 {% set ga_default_slug = default_slug %}
-
-{% block product_announcement %}
-  {% if product.slug == 'hubs' %}
-  <div id="hubs-banner" class="mzp-c-notification-bar mzp-t-warning">
-    <button class="mzp-c-notification-bar-button close-button" type="button"></button>
-    <p>{{ _('Mozilla Hubs will shut down on May 31, 2024. For more information about the shutdown and how you can support Hubs\' life beyond Mozilla please read this <a href="https://hubs.mozilla.com/labs/sunset/">article at Mozilla Hubs Creator Labs</a>.') }}</p>
-  </div>
-  {% endif %}
-{% endblock %}
 
 {% block title %}
   {{ document.title }} | {% if not products or products|count > 1 %}{{ pgettext('site_title', 'Mozilla Support') }}{% else %}{{ _('{product} Help')|f(product=pgettext('DB: products.Product.title', product.title)) }}{% endif %}
@@ -58,7 +56,7 @@
     {{ search_box(settings, id='support-search-sidebar', params=search_params) }}
   </div>
 
-  {{ aaq_widget(request, "document") }}
+  {{ aaq_widget(request) }}
 
   {% if fallback_reason == 'no_translation' %}
     {# If there is no translation, there is no document and the (future) parent is document. #}
@@ -96,12 +94,12 @@
     <article class="wiki-doc">
       {{ document_messages(document, redirected_from) }}
       {% if not document.is_archived %}
-        {{ document_metadata(document.current_revision.created, product_titles, helpful_votes, metadata_type="document") }}
+        {{ document_metadata(document.current_revision.created, is_first_revision, product_titles, helpful_votes, metadata_type="document") }}
       {% endif %}
       {{ document_content(document, fallback_reason, request, settings, document_css_class, any_localizable_revision, full_locale_name) }}
 
       {% if document.gets_mozilla_account_cta %}
-        {{ inpage_contact_cta(product=product, product_key='mozilla-account') }}
+        {{ inpage_contact_cta(product=product, product_slug='mozilla-account') }}
       {% endif %}
 
       {% set share_link = document.share_link or (document.parent and document.parent.share_link) %}
@@ -114,8 +112,7 @@
       {% endif %}
     </article>
 
-    <section class="sumo-page-section hide-on-large">
-      {{ vote_form(document, 'footer') }}
+    <section id="document-vote-wrapper-narrow-screen" class="sumo-page-section">
     </section>
 
     {{ contributor_list(contributors) }}
@@ -132,7 +129,7 @@
 {% endblock %}
 
 {% block side_bottom %}
-<div class="document-vote--sidebar-wrap">
+<div id="document-vote-wrapper-wide-screen" class="document-vote--sidebar-wrap">
   {# this vote-wrap class is to make the js compatible with old theme. TODO: Remove and fix js. #}
   {{ vote_form(document, 'footer') }}
 </div>

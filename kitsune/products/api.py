@@ -1,11 +1,10 @@
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _lazy
-
 from rest_framework import generics, serializers
 
-from kitsune.products.models import Product, Topic, Platform
-from kitsune.sumo.api_utils import LocaleNegotiationMixin, LocalizedCharField, ImageUrlField
+from kitsune.products.models import Platform, Product, Topic
+from kitsune.sumo.api_utils import ImageUrlField, LocaleNegotiationMixin, LocalizedCharField
 from kitsune.wiki.api import DocumentShortSerializer
 
 
@@ -23,7 +22,7 @@ class ProductSerializer(serializers.ModelSerializer):
 class ProductList(generics.ListAPIView):
     """List all documents."""
 
-    queryset = Product.objects.all()
+    queryset = Product.active.all()
     serializer_class = ProductSerializer
 
 
@@ -36,9 +35,9 @@ class TopicShortSerializer(serializers.ModelSerializer):
 
 
 class TopicSerializer(serializers.ModelSerializer):
-    parent = serializers.SlugRelatedField(slug_field="slug", queryset=Topic.objects.all())
+    parent = serializers.SlugRelatedField(slug_field="slug", queryset=Topic.active.all())
     path = serializers.ReadOnlyField()
-    product = serializers.SlugRelatedField(slug_field="slug", queryset=Product.objects.all())
+    product = serializers.SlugRelatedField(slug_field="slug", queryset=Product.active.all())
     title = LocalizedCharField(l10n_context="DB: products.Topic.title")
     subtopics = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
@@ -70,7 +69,7 @@ class TopicSerializer(serializers.ModelSerializer):
 
 
 class TopicDetail(LocaleNegotiationMixin, generics.RetrieveAPIView):
-    queryset = Topic.objects.all()
+    queryset = Topic.active.all()
     serializer_class = TopicSerializer
 
     def get_object(self):
@@ -108,11 +107,11 @@ class RootTopicSerializer(TopicShortSerializer):
 
 
 class TopicList(LocaleNegotiationMixin, generics.ListAPIView):
-    queryset = Topic.objects.filter(parent=None)
+    queryset = Topic.active.filter(parent=None)
     serializer_class = RootTopicSerializer
 
     def get_queryset(self):
-        queryset = self.queryset.filter(product__slug=self.kwargs["product"])
+        queryset = self.queryset.filter(products__slug=self.kwargs["product"])
         visible = bool(self.request.query_params.get("visible", True))
-        queryset = queryset.filter(visible=visible)
+        queryset = queryset.filter(visible=visible).order_by("display_order")
         return queryset

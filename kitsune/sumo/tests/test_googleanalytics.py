@@ -69,25 +69,56 @@ class GoogleAnalyticsTests(TestCase):
         """Test googleanalytics.pageviews_by_document()."""
         run_report.return_value = (
             Row(
-                dimension_values=[DimensionValue(value="/en-US/kb/doc1-slug")],
+                dimension_values=[
+                    DimensionValue(value="/en-US/kb/doc1-slug"),
+                    DimensionValue(value="(not set)"),
+                ],
                 metric_values=[MetricValue(value="1000")],
             ),
             Row(
-                dimension_values=[DimensionValue(value="/es/kb/doc2-slug")],
-                metric_values=[MetricValue(value="2000")],
+                dimension_values=[
+                    DimensionValue(value="/"),
+                    DimensionValue(value=""),
+                ],
+                metric_values=[MetricValue(value="7")],
             ),
             Row(
-                dimension_values=[DimensionValue(value="/de/kb/doc3-slug")],
+                dimension_values=[
+                    DimensionValue(value="/es/kb/doc2-slug"),
+                    DimensionValue(value="en-US"),
+                ],
+                metric_values=[MetricValue(value="1000")],
+            ),
+            Row(
+                dimension_values=[
+                    DimensionValue(value="/en-US/kb/doc2-slug"),
+                    DimensionValue(value="en-US"),
+                ],
+                metric_values=[MetricValue(value="1000")],
+            ),
+            Row(
+                dimension_values=[
+                    DimensionValue(value="/de/kb/doc3-slug"),
+                    DimensionValue(value="de"),
+                ],
                 metric_values=[MetricValue(value="3000")],
+            ),
+            Row(
+                dimension_values=[
+                    DimensionValue(value="/es/kb/doc4-slug"),
+                    DimensionValue(value="es"),
+                ],
+                metric_values=[MetricValue(value="4000")],
             ),
         )
 
-        result = list(googleanalytics.pageviews_by_document(LAST_7_DAYS))
+        result = googleanalytics.pageviews_by_document(LAST_7_DAYS)
 
-        self.assertEqual(3, len(result))
-        self.assertEqual(result[0], (("en-US", "doc1-slug"), 1000))
-        self.assertEqual(result[1], (("es", "doc2-slug"), 2000))
-        self.assertEqual(result[2], (("de", "doc3-slug"), 3000))
+        self.assertEqual(4, len(result))
+        self.assertEqual(result[("en-US", "doc1-slug")], 1000)
+        self.assertEqual(result[("en-US", "doc2-slug")], 2000)
+        self.assertEqual(result[("de", "doc3-slug")], 3000)
+        self.assertEqual(result[("es", "doc4-slug")], 4000)
 
     @patch.object(googleanalytics, "run_report")
     def test_pageviews_by_question(self, run_report):
@@ -98,21 +129,33 @@ class GoogleAnalyticsTests(TestCase):
                 metric_values=[MetricValue(value="1000")],
             ),
             Row(
+                dimension_values=[DimensionValue(value="/")],
+                metric_values=[MetricValue(value="7")],
+            ),
+            Row(
                 dimension_values=[DimensionValue(value="/es/questions/782348")],
-                metric_values=[MetricValue(value="2000")],
+                metric_values=[MetricValue(value="187")],
             ),
             Row(
                 dimension_values=[DimensionValue(value="/de/questions/987235")],
                 metric_values=[MetricValue(value="3000")],
             ),
+            Row(
+                dimension_values=[DimensionValue(value="/it/questions/123456")],
+                metric_values=[MetricValue(value="17")],
+            ),
+            Row(
+                dimension_values=[DimensionValue(value="/en-US/questions/782348")],
+                metric_values=[MetricValue(value="2000")],
+            ),
         )
 
-        result = list(googleanalytics.pageviews_by_question(LAST_7_DAYS))
+        result = googleanalytics.pageviews_by_question(LAST_7_DAYS)
 
         self.assertEqual(3, len(result))
-        self.assertEqual(result[0], (123456, 1000))
-        self.assertEqual(result[1], (782348, 2000))
-        self.assertEqual(result[2], (987235, 3000))
+        self.assertEqual(result[123456], 1017)
+        self.assertEqual(result[782348], 2187)
+        self.assertEqual(result[987235], 3000)
 
     @patch.object(googleanalytics, "run_report")
     def test_search_clicks_and_impressions(self, run_report):

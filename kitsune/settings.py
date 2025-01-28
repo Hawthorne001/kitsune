@@ -9,7 +9,6 @@ import re
 import dj_database_url
 import django_cache_url
 from decouple import Csv, config
-from wagtail.admin.localization import WAGTAILADMIN_PROVIDED_LANGUAGES
 
 from kitsune.lib.sumo_locales import LOCALES
 
@@ -447,10 +446,6 @@ TEMPLATES = [
                 "django_jinja.builtins.extensions.StaticFilesExtension",
                 "django_jinja.builtins.extensions.DjangoFiltersExtension",
                 "jinja2.ext.i18n",
-                "wagtail.jinja2tags.core",
-                "wagtail.admin.jinja2tags.userbar",
-                "wagtail.images.jinja2tags.images",
-                "wagtail.contrib.settings.jinja2tags.settings",
             ],
             "policies": {
                 "ext.i18n.trimmed": True,
@@ -459,12 +454,13 @@ TEMPLATES = [
     },
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [
+            path("dist"),
+        ],
         "APP_DIRS": True,
         "OPTIONS": {
             "debug": DEBUG,
-            "context_processors": _CONTEXT_PROCESSORS
-            + ["wagtail.contrib.settings.context_processors.settings"],
+            "context_processors": _CONTEXT_PROCESSORS,
         },
     },
 ]
@@ -514,7 +510,6 @@ MIDDLEWARE: tuple[str, ...] = (
     "kitsune.users.middleware.LogoutInvalidatedSessionsMiddleware",
     "csp.middleware.CSPMiddleware",
     "dockerflow.django.middleware.DockerflowMiddleware",
-    "wagtail.contrib.redirects.middleware.RedirectMiddleware",
 )
 
 # SecurityMiddleware settings
@@ -553,11 +548,9 @@ if READ_ONLY:
     AUTHENTICATION_BACKENDS = ("kitsune.sumo.readonlyauth.ReadOnlyBackend",)
     OIDC_ENABLE = False
     ENABLE_ADMIN = False
-    WAGTAIL_ENABLE_ADMIN = False
 else:
     OIDC_ENABLE = config("OIDC_ENABLE", default=True, cast=bool)
     ENABLE_ADMIN = config("ENABLE_ADMIN", default=OIDC_ENABLE, cast=bool)
-    WAGTAIL_ENABLE_ADMIN = config("WAGTAIL_ENABLE_ADMIN", default=OIDC_ENABLE, cast=bool)
 
     # Username algo for the oidc lib
     def _username_algo(email):
@@ -629,8 +622,6 @@ ANONYMOUS_USER_NAME = None
 
 ACCOUNT_ACTIVATION_DAYS = 30
 
-PASSWORD_HASHERS = ("kitsune.users.hashers.SHA256PasswordHasher",)
-
 USERNAME_BLACKLIST = path("kitsune", "configs", "username-blacklist.txt")
 
 ROOT_URLCONF = "%s.urls" % PROJECT_MODULE
@@ -644,7 +635,7 @@ INSTALLED_APPS: tuple[str, ...] = (
     "django.contrib.sites",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django_jinja.contrib._humanize",
+    "django_jinja",
     "graphene_django",
     "mozilla_django_oidc",
     "corsheaders",
@@ -683,20 +674,6 @@ INSTALLED_APPS: tuple[str, ...] = (
     "kitsune.notifications",
     "kitsune.journal",
     "kitsune.tidings",
-    "wagtail.contrib.forms",
-    "wagtail.contrib.redirects",
-    "wagtail.embeds",
-    "wagtail.sites",
-    "wagtail.users",
-    "wagtail.snippets",
-    "wagtail.documents",
-    "wagtail.images",
-    "wagtail.search",
-    "wagtail.admin",
-    "wagtail",
-    "wagtail_localize",
-    "wagtail_localize.locales",
-    "modelcluster",
     "rest_framework",
     "statici18n",
     "watchman",
@@ -944,6 +921,8 @@ GA_ACCOUNT = config(
 )  # Google API Service Account email address
 GA_PROPERTY_ID = config("GA_PROPERTY_ID", default="123456789")
 GTM_CONTAINER_ID = config("GTM_CONTAINER_ID", default="")  # Google container ID
+GA_DEBUG_MODE = config("GA_DEBUG_MODE", default=False, cast=bool)
+GA_CONSOLE_LOGGING = config("GA_CONSOLE_LOGGING", default=False, cast=bool)
 
 REDIS_BACKENDS = {
     # TODO: Make sure that db number is respected
@@ -991,21 +970,19 @@ AXES_COOLOFF_TIME = config("AXES_COOLOFF_TIME", default=1, cast=int)  # hour
 AXES_BEHIND_REVERSE_PROXY = config("AXES_BEHIND_REVERSE_PROXY", default=not DEBUG, cast=bool)
 AXES_REVERSE_PROXY_HEADER = config("AXES_REVERSE_PROXY_HEADER", default="HTTP_X_CLUSTER_CLIENT_IP")
 
-USE_DEBUG_TOOLBAR = config("USE_DEBUG_TOOLBAR", default=False, cast=bool)
+USE_DJANGO_SILK = config("USE_DJANGO_SILK", default=False, cast=bool)
 
 
-def show_toolbar_callback(*args):
-    return DEBUG and USE_DEBUG_TOOLBAR
+def show_debug_callback(*args):
+    return DEBUG and USE_DJANGO_SILK
 
 
-SHOW_DEBUG_TOOLBAR = show_toolbar_callback()
+SHOW_DEBUG_INFO = show_debug_callback()
 
-if SHOW_DEBUG_TOOLBAR:
-    DEBUG_TOOLBAR_CONFIG = {"SHOW_TOOLBAR_CALLBACK": "kitsune.settings.show_toolbar_callback"}
+if SHOW_DEBUG_INFO:
+    INSTALLED_APPS = INSTALLED_APPS + ("silk",)
 
-    INSTALLED_APPS = INSTALLED_APPS + ("debug_toolbar",)
-
-    MIDDLEWARE = ("debug_toolbar.middleware.DebugToolbarMiddleware",) + MIDDLEWARE
+    MIDDLEWARE = ("silk.middleware.SilkyMiddleware",) + MIDDLEWARE
 
 # Set this to True to wrap each HTTP request in a transaction on this database.
 ATOMIC_REQUESTS = config("ATOMIC_REQUESTS", default=True, cast=bool)
@@ -1200,6 +1177,7 @@ CSP_SCRIPT_SRC: tuple[str, ...] = (
 
 CSP_IMG_SRC = (
     "'self'",
+    "blob:",
     "data:",
     "https://*.mozaws.net",
     "https://*.webservices.mozgcp.net",
@@ -1294,9 +1272,7 @@ LEGACY_CONTRIBUTOR_GROUPS = [
 FIREFOX_SWITCHING_DEVICES_ARTICLES = config(
     "FIREFOX_SWITCHING_DEVICES_ARTICLES", default="switching-devices", cast=Csv()
 )
-FIREFOX_SWITCHING_DEVICES_TOPIC = config(
-    "FIREFOX_SWITCHING_DEVICES_TOPIC", default="back-up-your-data"
-)
+FIREFOX_SWITCHING_DEVICES_TOPIC = config("FIREFOX_SWITCHING_DEVICES_TOPIC", default="backup-data")
 
 # Slugs of articles that have a special CTA for Mozilla account
 MOZILLA_ACCOUNT_ARTICLES = [
@@ -1311,47 +1287,7 @@ MOZILLA_ACCOUNT_ARTICLES = [
     "im-having-problems-confirming-my-firefox-account",
 ]
 
-# Wagtail settings
-WAGTAIL_I18N_ENABLED = True
-WAGTAIL_CONTENT_LANGUAGES = LANGUAGES
-WAGTAILADMIN_PERMITTED_LANGUAGES = [
-    # Only include items in this list that SuMO supports and that are included
-    # in wagtail.admin.localization.WAGTAILADMIN_PROVIDED_LANGUAGES. These are
-    # only used by Wagtail for localizing its admin interface.
-    ("ar", "Arabic"),
-    ("ca", "Catalan"),
-    ("cs", "Czech"),
-    ("de", "German"),
-    ("el", "Greek"),
-    ("en", "English"),
-    ("es", "Spanish"),
-    ("et", "Estonian"),
-    ("fi", "Finnish"),
-    ("fr", "French"),
-    ("gl", "Galician"),
-    ("hr", "Croatian"),
-    ("hu", "Hungarian"),
-    ("id-id", "Indonesian"),
-    ("it", "Italian"),
-    ("ja", "Japanese"),
-    ("ko", "Korean"),
-    ("lt", "Lithuanian"),
-    ("nl", "Dutch"),
-    ("fa", "Persian"),
-    ("pl", "Polish"),
-    ("pt-br", "Brazilian Portuguese"),
-    ("pt-pt", "Portuguese"),
-    ("ro", "Romanian"),
-    ("ru", "Russian"),
-    ("sv", "Swedish"),
-    ("sk-sk", "Slovak"),
-    ("sl", "Slovenian"),
-    ("th", "Thai"),
-    ("tr", "Turkish"),
-    ("uk", "Ukrainian"),
-    ("zh-hans", "Chinese (Simplified)"),
-    ("zh-hant", "Chinese (Traditional)"),
-]
-WAGTAIL_SITE_NAME = config("WAGTAIL_SITE_NAME", default="Mozilla Support CMS")
-WAGTAILADMIN_BASE_URL = config("WAGTAILADMIN_BASE_URL", default="")
-WAGTAILIMAGES_MAX_UPLOAD_SIZE = IMAGE_MAX_FILESIZE
+MOZILLA_LOCATION_SERVICE = config(
+    "MOZILLA_LOCATION_SERVICE",
+    default="https://location.services.mozilla.com/v1/country?key=fa6d7fc9-e091-4be1-b6c1-5ada5815ae9d",  # noqa
+)

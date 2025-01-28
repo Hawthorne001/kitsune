@@ -70,8 +70,10 @@
 
 var TEMPLATE = (
   '<div class="kbox-container">' +
-  '<a href="#close" class="kbox-close">&#x2716;</a>' +
+  '<div class="kbox-header">' +
   '<div class="kbox-title"></div>' +
+  '<a href="#close" class="kbox-close">&#x2716;</a>' +
+  '</div>' +
   '<div class="kbox-wrap"><div class="kbox-placeholder"/></div>' +
   '</div>'
 ),
@@ -193,11 +195,11 @@ KBox.prototype = {
     // Handle ESC
     if (self.options.closeOnEsc) {
       self.keypressHandler = function (ev) {
-        if (ev.keyCode === 27) {
+        if (ev.key === 'Escape' || ev.keyCode === 27) {
           self.close();
         }
       };
-      $(document).on('keypress', self.keypressHandler);
+      $(document).on('keydown', self.keypressHandler);
     }
 
     // Handle outside clicks
@@ -214,8 +216,7 @@ KBox.prototype = {
     }
   },
   setPosition: function (position) {
-    var self = this,
-      toX, toY, $parent, parentOffset, minX, minY, scrollL, scrollT;
+    var self = this;
     if (!position) {
       position = self.options.position;
     }
@@ -256,7 +257,7 @@ KBox.prototype = {
       self.destroy();
     }
     if (self.options.closeOnEsc) {
-      $('body').off('keypress', self.keypressHandler);
+      $('body').off('keydown', self.keypressHandler);
     }
     if (self.options.closeOnOutClick) {
       $('body').off('click', self.clickHandler);

@@ -1,5 +1,4 @@
 from playwright.sync_api import Page
-
 from playwright_tests.flows.ask_a_question_flows.aaq_flows.aaq_flow import AAQFlow
 from playwright_tests.flows.explore_articles_flows.article_flows.add_kb_article_flow import (
     AddKbArticleFlow)
@@ -12,13 +11,18 @@ from playwright_tests.flows.explore_articles_flows.article_flows.delete_kb_artic
     DeleteKbArticleFlow
 from playwright_tests.flows.explore_articles_flows.article_flows.edit_article_meta_flow import \
     EditArticleMetaFlow
-from playwright_tests.flows.explore_articles_flows.article_flows.post_new_thread_flow import \
-    PostNewDiscussionThreadFlow
+from playwright_tests.flows.explore_articles_flows.article_flows.kb_article_threads_flow import \
+    KbThreads
 from playwright_tests.flows.messaging_system_flows.messaging_system_flow import (
     MessagingSystemFlows)
 from playwright_tests.flows.user_groups_flows.user_group_flow import UserGroupFlow
 from playwright_tests.flows.user_profile_flows.edit_profile_data_flow import EditProfileDataFlow
 from playwright_tests.pages.ask_a_question.aaq_pages.aaq_form_page import AAQFormPage
+from playwright_tests.pages.common_elements.common_web_elements import CommonWebElements
+from playwright_tests.pages.contribute.contribute_pages.contributor_discussions_pages.\
+    contributor_discussions_page import ContributorDiscussionPage
+from playwright_tests.pages.contribute.contribute_pages.contributor_discussions_pages.\
+    discussions_page import DiscussionsPage
 from playwright_tests.pages.contribute.contributor_tools_pages.article_discussions_page import \
     ArticleDiscussionsPage
 from playwright_tests.pages.contribute.contributor_tools_pages.kb_dashboard_page import KBDashboard
@@ -59,6 +63,7 @@ from playwright_tests.pages.ask_a_question.contact_support_pages.contact_support
 from playwright_tests.pages.contribute.contribute_pages.contribute_page import ContributePage
 from playwright_tests.pages.contribute.contribute_pages.ways_to_contribute_pages import (
     WaysToContributePages)
+from playwright_tests.pages.explore_help_articles.explore_by_topic_page import ExploreByTopicPage
 from playwright_tests.pages.footer import FooterSection
 from playwright_tests.pages.community_forums.forums_pages.product_support_forum import (
     ProductSupportForum)
@@ -135,6 +140,7 @@ class SumoPages:
 
         # Explore our help articles products page.
         self.products_page = ProductsPage(page)
+        self.explore_by_topic_page = ExploreByTopicPage(page)
 
         # KB Articles.
         self.kb_submit_kb_article_form_page = SubmitKBArticlePage(page)
@@ -183,6 +189,10 @@ class SumoPages:
         # Moderate Forum Page
         self.moderate_forum_content_page = ModerateForumContent(page)
 
+        # Discussions pages
+        self.contributor_discussions_page = ContributorDiscussionPage(page)
+        self.discussions_page = DiscussionsPage(page)
+
         # Auth flow Page.
         self.auth_flow_page = AuthFlowPage(page)
 
@@ -204,9 +214,6 @@ class SumoPages:
         # KB article deletion Flow
         self.kb_article_deletion_flow = DeleteKbArticleFlow(page)
 
-        # KB article discussion Flow
-        self.post_kb_discussion_thread_flow = PostNewDiscussionThreadFlow(page)
-
         # KB article edit metadata Flow
         self.edit_article_metadata_flow = EditArticleMetaFlow(page)
 
@@ -215,3 +222,9 @@ class SumoPages:
 
         # User Group Flow
         self.user_group_flow = UserGroupFlow(page)
+
+        # KB article threads Flow
+        self.kb_article_thread_flow = KbThreads(page)
+
+        # Common Web Elements
+        self.common_web_elements = CommonWebElements(page)

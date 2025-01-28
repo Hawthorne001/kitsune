@@ -1,10 +1,12 @@
 import logging
 import re
 from datetime import datetime, timedelta
+from functools import cached_property
 from urllib.parse import urlparse
 
 import actstream
 import actstream.actions
+import waffle
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -20,23 +22,21 @@ from django.utils import translation
 from django.utils.translation import pgettext
 from elasticsearch import ElasticsearchException
 from product_details import product_details
-from taggit.models import Tag
 
 from kitsune.flagit.models import FlaggedObject
 from kitsune.products.models import Product, Topic
 from kitsune.questions import config
-from kitsune.questions.managers import AnswerManager, QuestionLocaleManager, QuestionManager
+from kitsune.questions.managers import AAQConfigManager, AnswerManager, QuestionManager
 from kitsune.questions.tasks import update_answer_pages, update_question_votes
 from kitsune.sumo.i18n import split_into_language_and_path
 from kitsune.sumo.models import LocaleField, ModelBase
 from kitsune.sumo.templatetags.jinja_helpers import urlparams, wiki_to_html
 from kitsune.sumo.urlresolvers import reverse
 from kitsune.sumo.utils import chunked
-from kitsune.tags.models import BigVocabTaggableManager
+from kitsune.tags.models import BigVocabTaggableManager, SumoTag
 from kitsune.tags.utils import add_existing_tag
 from kitsune.upload.models import ImageAttachment
 from kitsune.wiki.models import Document
-
 
 log = logging.getLogger("k.questions")
 
@@ -147,6 +147,9 @@ class Question(AAQBase):
     tags_cache_key = "question:tags:%s"
     images_cache_key = "question:images:%s"
     contributors_cache_key = "question:contributors:%s"
+    moderation_timestamp = models.DateTimeField(default=None, null=True)
+
+    update_topic_counter = models.IntegerField(default=0)
 
     objects = QuestionManager()
 
@@ -199,6 +202,17 @@ class Question(AAQBase):
             # actstream
             # Authors should automatically follow their own questions.
             actstream.actions.follow(self.creator, self, send_action=False, actor_only=False)
+            if waffle.switch_is_active("flagit-spam-autoflag"):
+                # Add the question to the moderation queue to validate the topic
+                content_type = ContentType.objects.get_for_model(self)
+                FlaggedObject.objects.create(
+                    content_type=content_type,
+                    object_id=self.id,
+                    creator=self.creator,
+                    status=FlaggedObject.FLAG_PENDING,
+                    reason=FlaggedObject.REASON_CONTENT_MODERATION,
+                    notes="New question, review topic",
+                )
 
     def add_metadata(self, **kwargs):
         """Add (save to db) the passed in metadata.
@@ -246,12 +260,13 @@ class Question(AAQBase):
 
     @property
     def product_config(self):
-        """Return the product config this question is about or an empty
-        mapping if unknown."""
-        md = self.metadata
-        if "product" in md:
-            return config.products.get(md["product"], {})
-        return {}
+        """Return the product config this question is about or None"""
+        try:
+            aaq_config = AAQConfig.objects.get(is_active=True, product=self.product)
+        except AAQConfig.DoesNotExist:
+            return None
+        else:
+            return aaq_config
 
     @property
     def product_slug(self):
@@ -263,22 +278,17 @@ class Question(AAQBase):
 
         return self._product_slug
 
-    @property
-    def category_config(self):
-        """Return the category this question refers to or an empty mapping if
-        unknown."""
-        md = self.metadata
-        if self.product_config and "category" in md:
-            return self.product_config["categories"].get(md["category"], {})
-        return {}
-
     def auto_tag(self):
         """Apply tags to myself that are implied by my metadata.
 
         You don't need to call save on the question after this.
 
         """
-        to_add = self.product_config.get("tags", []) + self.category_config.get("tags", [])
+        to_add = []
+        if product_config := self.product_config:
+            for tag in product_config.associated_tags.all():
+                to_add.append(tag)
+
         version = self.metadata.get("ff_version", "")
 
         # Remove the beta (b*), aurora (a2) or nightly (a1) suffix.
@@ -299,15 +309,19 @@ class Question(AAQBase):
             to_add.append("Firefox %s" % version)
             to_add.append("beta")
 
-        self.tags.add(*to_add)
-
         # Add a tag for the OS if it already exists as a tag:
-        os = self.metadata.get("os")
-        if os:
+        if os := self.metadata.get("os"):
             try:
                 add_existing_tag(os, self.tags)
-            except Tag.DoesNotExist:
+            except SumoTag.DoesNotExist:
                 pass
+        product_md = self.metadata.get("product")
+        topic_md = self.metadata.get("category")
+        if self.product and not product_md:
+            to_add.append(self.product.slug)
+        if self.topic and not topic_md:
+            to_add.append(self.topic.slug)
+        self.tags.add(*to_add)
 
     def get_absolute_url(self):
         # Note: If this function changes, we need to change it in
@@ -379,6 +393,14 @@ class Question(AAQBase):
     @property
     def is_offtopic(self):
         return config.OFFTOPIC_TAG_NAME in [t.name for t in self.my_tags]
+
+    @cached_property
+    def is_moderated(self):
+        return (
+            self.flags.filter(reason=FlaggedObject.REASON_CONTENT_MODERATION)
+            .exclude(status=FlaggedObject.FLAG_PENDING)
+            .exists()
+        )
 
     @property
     def my_tags(self):
@@ -736,29 +758,15 @@ class QuestionVisits(ModelBase):
         from kitsune.sumo import googleanalytics
 
         with transaction.atomic():
-            # First, let's gather some data we need. We're sacrificing memory
-            # here in order to reduce the number of database queries later on.
             if verbose:
                 log.info("Gathering pageviews per question from GA4 data API...")
 
-            instance_by_question_id = {}
-            for question_id, visits in googleanalytics.pageviews_by_question(verbose=verbose):
-                instance_by_question_id[question_id] = cls(
-                    question_id=Subquery(Question.objects.filter(id=question_id).values("id")),
-                    visits=visits,
-                )
+            pageviews_by_question_id = googleanalytics.pageviews_by_question(verbose=verbose)
 
-            question_ids = list(instance_by_question_id)
+            total_count = len(pageviews_by_question_id)
 
-            # Next, let's clear out the stale instances that have new results.
             if verbose:
-                log.info(f"Deleting all stale instances of {cls.__name__}...")
-
-            cls.objects.filter(question_id__in=question_ids).delete()
-
-            # Then we can create fresh instances for the questions that have results.
-            if verbose:
-                log.info(f"Creating {len(question_ids)} fresh instances of {cls.__name__}...")
+                log.info(f"Gathered pageviews for {total_count} questions.")
 
             def create_batch(batch_of_question_ids):
                 """
@@ -776,44 +784,87 @@ class QuestionVisits(ModelBase):
                     ]
                 )
 
-            # Let's create the fresh instances in batches, so we avoid exposing ourselves to
-            # the possibility of transgressing some query size limit.
-            batch_size = 1000
-            for batch_of_question_ids in chunked(question_ids, batch_size):
+            instance_by_question_id = {}
+
+            for i, (question_id, visits) in enumerate(pageviews_by_question_id.items(), start=1):
+                instance_by_question_id[question_id] = cls(
+                    question_id=Subquery(Question.objects.filter(id=question_id).values("id")),
+                    visits=visits,
+                )
+
+                # Update the question visits in batches of 30K to avoid memory issues.
+                if ((i % 30000) != 0) and (i != total_count):
+                    continue
+
+                # We've got a batch, so let's update them.
+
+                question_ids = list(instance_by_question_id)
+
+                # Next, let's clear out the stale instances that have new results.
                 if verbose:
-                    log.info(f"Creating a batch of {len(batch_of_question_ids)} instances...")
+                    log.info(f"Deleting {len(question_ids)} stale instances of {cls.__name__}...")
 
-                try:
-                    with transaction.atomic():
+                cls.objects.filter(question_id__in=question_ids).delete()
+
+                # Then we can create fresh instances for the questions that have results.
+                if verbose:
+                    log.info(f"Creating {len(question_ids)} fresh instances of {cls.__name__}...")
+
+                # Let's create the fresh instances in batches of 1K, so we avoid exposing
+                # ourselves to the possibility of transgressing some query size limit.
+                for batch_of_question_ids in chunked(question_ids, 1000):
+                    if verbose:
+                        log.info(f"Creating a batch of {len(batch_of_question_ids)} instances...")
+
+                    try:
+                        with transaction.atomic():
+                            create_batch(batch_of_question_ids)
+                    except IntegrityError:
+                        # There is a very slim chance that one or more Questions have been
+                        # deleted in the moment of time between the formation of the list
+                        # of valid instances and actually creating them, so let's give it
+                        # one more try, assuming there's an even slimmer chance that
+                        # lightning will strike twice. If this one fails, we'll roll-back
+                        # everything and give up on the entire effort.
                         create_batch(batch_of_question_ids)
-                except IntegrityError:
-                    # There is a very slim chance that one or more Questions have been deleted in
-                    # the moment of time between the formation of the list of valid instances and
-                    # actually creating them, so let's give it one more try, assuming there's an
-                    # even slimmer chance that lightning will strike twice. If this one fails,
-                    # we'll roll-back everything and give up on the entire effort.
-                    create_batch(batch_of_question_ids)
 
-            if verbose:
-                log.info("Done.")
+                # We're done with this batch, so let's clear the memory for the next one.
+                instance_by_question_id.clear()
+
+        if verbose:
+            log.info("Done.")
 
 
 class QuestionLocale(ModelBase):
     locale = LocaleField(choices=settings.LANGUAGE_CHOICES_ENGLISH, unique=True)
-    products = models.ManyToManyField(Product, related_name="questions_locales")
-
-    objects = QuestionLocaleManager()
 
     class Meta:
         verbose_name = "AAQ enabled locale"
 
+    def __str__(self) -> str:
+        return self.locale
+
 
 class AAQConfig(ModelBase):
+    title = models.CharField(max_length=255, default="")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="aaq_configs")
-    pinned_articles = models.ManyToManyField(Document)
+    pinned_articles = models.ManyToManyField(Document, null=True, blank=True)
+    associated_tags = models.ManyToManyField(SumoTag, null=True, blank=True)
+    enabled_locales = models.ManyToManyField(QuestionLocale)
+    # Whether the configuration is active or not. Only one can be active per product
+    is_active = models.BooleanField(default=False)
+    extra_fields = models.JSONField(default=list, blank=True)
+
+    objects = AAQConfigManager()
 
     class Meta:
         verbose_name = "AAQ configuration"
+        constraints = [
+            models.UniqueConstraint(fields=["product", "is_active"], name="unique_active_config")
+        ]
+
+    def __str__(self):
+        return f"{self.product} Configuration"
 
 
 class Answer(AAQBase):

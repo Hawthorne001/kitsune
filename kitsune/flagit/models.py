@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from django.db import models
 from django.contrib.auth.models import User
-from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from django.utils.translation import gettext_lazy as _lazy
 
 from kitsune.sumo.models import ModelBase
@@ -12,23 +12,28 @@ from kitsune.sumo.models import ModelBase
 class FlaggedObjectManager(models.Manager):
     def pending(self):
         """Get all flagged objects that are pending moderation."""
-        return self.filter(status=0)
+        return self.filter(status=FlaggedObject.FLAG_PENDING)
 
 
 class FlaggedObject(ModelBase):
     """A flag raised on an object."""
 
+    REASON_SPAM = "spam"
+    REASON_LANGUAGE = "language"
+    REASON_ABUSE = "abuse"
+    REASON_CONTENT_MODERATION = "content_moderation"
+    REASON_OTHER = "other"
     REASONS = (
-        ("spam", _lazy("Spam or other unrelated content")),
-        ("language", _lazy("Inappropriate language/dialog")),
-        ("bug_support", _lazy("Misplaced bug report or support request")),
-        ("abuse", _lazy("Abusive content")),
-        ("other", _lazy("Other (please specify)")),
+        (REASON_SPAM, _lazy("Spam or other unrelated content")),
+        (REASON_LANGUAGE, _lazy("Inappropriate language/dialog")),
+        (REASON_ABUSE, _lazy("Abusive content")),
+        (REASON_OTHER, _lazy("Other (please specify)")),
     )
 
     FLAG_PENDING = 0
     FLAG_ACCEPTED = 1
     FLAG_REJECTED = 2
+    FLAG_DUPLICATE = 3
     STATUSES = (
         (FLAG_PENDING, _lazy("Pending")),
         (FLAG_ACCEPTED, _lazy("Accepted and Fixed")),
@@ -48,6 +53,11 @@ class FlaggedObject(ModelBase):
 
     handled = models.DateTimeField(default=datetime.now, db_index=True)
     handled_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True)
+
+    assignee = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="assigned_flags"
+    )
+    assigned_timestamp = models.DateTimeField(default=None, null=True)
 
     objects = FlaggedObjectManager()
 

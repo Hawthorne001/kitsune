@@ -373,3 +373,37 @@ def is_trusted_user(user: User | None) -> bool:
 def in_staff_group(user: User | None) -> bool:
     """Check if a user is in the Staff group."""
     return bool(user and user.is_authenticated and user.profile.in_staff_group)
+
+
+def has_aaq_config(product=None):
+    """Check if a product has an AAQ config."""
+    # avoid circular dependencies
+    from kitsune.products.models import Product
+    from kitsune.questions.models import AAQConfig
+
+    if not product:
+        return False
+
+    if isinstance(product, str):
+        try:
+            product = Product.objects.get(slug=product)
+        except Product.DoesNotExist:
+            return False
+
+    try:
+        return AAQConfig.objects.filter(product=product, is_active=True).exists()
+    except AAQConfig.DoesNotExist:
+        return False
+
+
+def set_aaq_context(request, product):
+    """Set the AAQ context for a product."""
+    if not has_aaq_config(product):
+        request.session["aaq_context"] = {}
+        return
+
+    request.session["aaq_context"] = {
+        "has_ticketing_support": product.has_ticketing_support,
+        "product_slug": product.slug,
+        "has_public_forum": product.questions_enabled(locale=request.LANGUAGE_CODE),
+    }

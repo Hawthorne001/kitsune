@@ -5,14 +5,14 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.template.defaultfilters import slugify
 from django.utils.translation import gettext_lazy as _lazy
+from django.utils.translation import ngettext_lazy as _nlazy
 
 from kitsune.products.models import Product, Topic
 from kitsune.sumo.form_fields import MultiUsernameField
-from kitsune.wiki.config import SIGNIFICANCES, CATEGORIES
-from kitsune.wiki.models import Document, Revision, DraftRevision, MAX_REVISION_COMMENT_LENGTH
+from kitsune.wiki.config import CATEGORIES, SIGNIFICANCES
+from kitsune.wiki.models import MAX_REVISION_COMMENT_LENGTH, Document, DraftRevision, Revision
 from kitsune.wiki.tasks import add_short_links
-from kitsune.wiki.widgets import ProductTopicsAndSubtopicsWidget, RelatedDocumentsWidget
-
+from kitsune.wiki.widgets import ProductsWidget, RelatedDocumentsWidget, TopicsWidget
 
 TITLE_REQUIRED = _lazy("Please provide a title.")
 TITLE_SHORT = _lazy(
@@ -67,40 +67,6 @@ TOPIC_REQUIRED = _lazy("Please select at least one topic.")
 class DocumentForm(forms.ModelForm):
     """Form to create/edit a document."""
 
-    def __init__(self, *args, **kwargs):
-        # Quasi-kwargs:
-        can_archive = kwargs.pop("can_archive", False)
-        can_edit_needs_change = kwargs.pop("can_edit_needs_change", False)
-        initial_title = kwargs.pop("initial_title", "")
-
-        super(DocumentForm, self).__init__(*args, **kwargs)
-
-        title_field = self.fields["title"]
-        title_field.initial = initial_title
-
-        slug_field = self.fields["slug"]
-        slug_field.initial = slugify(initial_title)
-
-        topics_field = self.fields["topics"]
-        topics_field.choices = Topic.objects.values_list("id", "title")
-
-        products_field = self.fields["products"]
-        products_field.choices = Product.objects.values_list("id", "title")
-
-        related_documents_field = self.fields["related_documents"]
-        related_documents_field.choices = Document.objects.values_list("id", "title")
-
-        # If user hasn't permission to frob is_archived, remove the field. This
-        # causes save() to skip it as well.
-        if not can_archive:
-            del self.fields["is_archived"]
-
-        # If user hasn't permission to mess with needs_change*, remove the
-        # fields. This causes save() to skip it as well.
-        if not can_edit_needs_change:
-            del self.fields["needs_change"]
-            del self.fields["needs_change_comment"]
-
     title = forms.CharField(
         min_length=5,
         max_length=255,
@@ -130,10 +96,6 @@ class DocumentForm(forms.ModelForm):
         },
     )
 
-    products = forms.MultipleChoiceField(
-        label=_lazy("Relevant to:"), required=False, widget=forms.CheckboxSelectMultiple()
-    )
-
     is_localizable = forms.BooleanField(
         initial=True, label=_lazy("Allow translations:"), required=False
     )
@@ -161,7 +123,15 @@ class DocumentForm(forms.ModelForm):
     )
 
     topics = forms.MultipleChoiceField(
-        label=_lazy("Topics:"), required=False, widget=ProductTopicsAndSubtopicsWidget()
+        label=_lazy("Select topic(s)"),
+        required=False,
+        widget=TopicsWidget(),
+    )
+
+    products = forms.MultipleChoiceField(
+        label=_lazy("Select product(s)"),
+        required=False,
+        widget=ProductsWidget(),
     )
 
     related_documents = forms.MultipleChoiceField(
@@ -184,20 +154,56 @@ class DocumentForm(forms.ModelForm):
         return slug
 
     def clean(self):
-        c = super(DocumentForm, self).clean()
-        locale = c.get("locale")
+        cdata = super(DocumentForm, self).clean()
+        locale = cdata.get("locale")
 
         # Products are required for en-US
-        products = c.get("products")
-        if locale == settings.WIKI_DEFAULT_LANGUAGE and (not products or len(products) < 1):
+        product_ids = set(map(int, cdata.get("products", [])))
+        if locale == settings.WIKI_DEFAULT_LANGUAGE and (not product_ids or len(product_ids) < 1):
             raise forms.ValidationError(PRODUCT_REQUIRED)
 
         # Topics are required for en-US
-        topics = c.get("topics")
-        if locale == settings.WIKI_DEFAULT_LANGUAGE and (not topics or len(topics) < 1):
+        topic_ids = set(map(int, cdata.get("topics", [])))
+        if locale == settings.WIKI_DEFAULT_LANGUAGE and (not topic_ids or len(topic_ids) < 1):
             raise forms.ValidationError(TOPIC_REQUIRED)
 
-        return c
+        invalid_topics = []
+        for topic in Topic.active.filter(id__in=topic_ids):
+            topic_product_ids = set(topic.products.values_list("id", flat=True))
+            if not product_ids.issubset(topic_product_ids):
+                invalid_topics.append(topic)
+
+        invalid_products = []
+        for product in Product.active.filter(id__in=product_ids):
+            product_topic_ids = set(product.m2m_topics.values_list("id", flat=True))
+            if not topic_ids.issubset(product_topic_ids):
+                invalid_products.append(product)
+
+        error_message = ""
+        if invalid_topics or invalid_products:
+            invalid_items = (
+                invalid_products if len(invalid_topics) > len(invalid_products) else invalid_topics
+            )
+            invalid_item_names = ", ".join([item.title for item in invalid_items])
+
+            error_message = _nlazy(
+                (
+                    f"The following {'product' if invalid_items is invalid_products else 'topic'} "
+                    f"is not associated with all selected "
+                    f"{'topics' if invalid_items is invalid_products else 'products'}: %(items)s"
+                ),
+                (
+                    f"The following {'products' if invalid_items is invalid_products else 'topics'} "  # noqa
+                    f"are not associated with all selected "
+                    f"{'topics' if invalid_items is invalid_products else 'products'}: %(items)s"
+                ),
+                len(invalid_items),
+            ) % {"items": invalid_item_names}
+
+            if error_message:
+                raise forms.ValidationError(error_message)
+
+        return cdata
 
     class Meta:
         model = Document
@@ -216,6 +222,40 @@ class DocumentForm(forms.ModelForm):
             "related_documents",
             "restrict_to_groups",
         )
+
+    def __init__(self, *args, **kwargs):
+        # Quasi-kwargs:
+        can_archive = kwargs.pop("can_archive", False)
+        can_edit_needs_change = kwargs.pop("can_edit_needs_change", False)
+        initial_title = kwargs.pop("initial_title", "")
+
+        super(DocumentForm, self).__init__(*args, **kwargs)
+
+        title_field = self.fields["title"]
+        title_field.initial = initial_title
+
+        slug_field = self.fields["slug"]
+        slug_field.initial = slugify(initial_title)
+
+        topics_field = self.fields["topics"]
+        topics_field.choices = Topic.active.values_list("id", "title")
+
+        products_field = self.fields["products"]
+        products_field.choices = Product.active.values_list("id", "title")
+
+        related_documents_field = self.fields["related_documents"]
+        related_documents_field.choices = Document.objects.values_list("id", "title")
+
+        # If user hasn't permission to frob is_archived, remove the field. This
+        # causes save() to skip it as well.
+        if not can_archive:
+            del self.fields["is_archived"]
+
+        # If user hasn't permission to mess with needs_change*, remove the
+        # fields. This causes save() to skip it as well.
+        if not can_edit_needs_change:
+            del self.fields["needs_change"]
+            del self.fields["needs_change_comment"]
 
     def save(self, parent_doc, **kwargs):
         """Persist the Document form, and return the saved Document."""

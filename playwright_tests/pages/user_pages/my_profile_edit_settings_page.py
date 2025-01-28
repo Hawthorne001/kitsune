@@ -3,108 +3,148 @@ from playwright_tests.core.basepage import BasePage
 
 
 class MyProfileEditSettingsPage(BasePage):
-
     # My profile edit settings page locators.
-    __edit_settings_page_header = "//h3[@class='sumo-page-heading']"
-    __edit_settings_checkbox_options_label = "//div[@class='field checkbox']/label"
-    __watch_forum_threads_I_start_checkbox = ("//input[@id='id_forums_watch_new_thread"
-                                              "']/following-sibling::label")
-    __watch_forum_threads_I_comment_in_checkbox = ("//input[@id='id_forums_watch_after_reply"
-                                                   "']/following-sibling::label")
-    __watch_kb_discussions_threads_I_start_checkbox = (
-        "//input[@id='id_kbforums_watch_new_thread']/following-sibling::label")
-    __watch_kb_discussion_threads_I_comment_in_checkbox = (
-        "//input[@id='id_kbforums_watch_after_reply']/following-sibling::label")
-    __watch_question_threads_I_comment_in_checkbox = (
-        "//input[@id='id_questions_watch_after_reply']/following-sibling::label")
-    __send_emails_for_private_messages_checkbox = ("//input[@id='id_email_private_messages"
-                                                   "']/following-sibling::label")
-    __edit_settings_update_button = "//article[@id='edit-settings']/form//button[@type='submit']"
-    __your_settings_have_been_saved_notification_banner = "//ul[@class='user-messages']//li"
-    __your_settings_have_been_saved_notification_banner_text = "//ul[@class='user-messages']//li/p"
-    __your_settings_have_been_saved_notification_banner_close_button = ("//ul[@class='user"
-                                                                        "-messages']//button")
-    __my_profile_user_navbar = "//ul[@id='user-nav']/li"
-    __my_profile_user_navbar_selected_element = "//a[@class='selected']"
+    PROFILE_EDIT_SETTINGS_LOCATORS = {
+        "edit_settings_page_header": "//h3[@class='sumo-page-heading']",
+        "edit_settings_checkbox_options_label": "//div[@class='field checkbox']/label",
+        "watch_forum_threads_I_start_checkbox": "//input[@id='id_forums_watch_new_thread']/"
+                                                "following-sibling::label",
+        "watch_forum_threads_I_comment_in_checkbox": "//input[@id='id_forums_watch_after_reply']"
+                                                     "/following-sibling::label",
+        "watch_kb_discussions_threads_I_start_checkbox": "//input[@id='id_kbforums_watch_new_"
+                                                         "thread']/following-sibling::label",
+        "watch_kb_discussion_threads_I_comment_in_checkbox": "//input[@id='id_kbforums_watch_after"
+                                                             "_reply']/following-sibling::label",
+        "watch_question_threads_I_comment_in_checkbox": "//input[@id='id_questions_watch_after_"
+                                                        "reply']/following-sibling::label",
+        "send_emails_for_private_messages_checkbox": "//input[@id='id_email_private_messages']/"
+                                                     "following-sibling::label",
+        "edit_settings_update_button": "//article[@id='edit-settings']/form//button[@type='"
+                                       "submit']",
+        "your_settings_have_been_saved_notification_banner": "//ul[@class='user-messages']//li",
+        "your_settings_have_been_saved_notification_banner_text": "//ul[@class='user-messages']//"
+                                                                  "li/p",
+        "your_settings_have_been_saved_notification_banner_close_button": "//ul[@class='user-"
+                                                                          "messages']//button",
+        "my_profile_user_navbar": "//ul[@id='user-nav']/li",
+        "my_profile_user_navbar_selected_element": "//a[@class='selected']"
+    }
 
     def __init__(self, page: Page):
         super().__init__(page)
 
     # My profile edit settings page actions.
-    def _get_edit_settings_page_header(self) -> str:
-        return super()._get_text_of_element(self.__edit_settings_page_header)
+    def get_edit_settings_page_header(self) -> str:
+        """Get edit settings page header text"""
+        return self._get_text_of_element(self.PROFILE_EDIT_SETTINGS_LOCATORS["edit_settings_page_"
+                                                                             "header"])
 
-    def _get_text_of_checkbox_options(self) -> list[str]:
-        return super()._get_text_of_elements(self.__edit_settings_checkbox_options_label)
+    def get_text_of_checkbox_options(self) -> list[str]:
+        """Get text of all checkbox options"""
+        return self._get_text_of_elements(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["edit_settings_checkbox_options_label"])
 
-    def _settings_saved_notif_banner_txt(self) -> str:
-        return super()._get_text_of_element(
-            self.__your_settings_have_been_saved_notification_banner_text)
+    def settings_saved_notif_banner_txt(self) -> str:
+        """Get text of the settings saved notification banner"""
+        return self._get_text_of_element(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["your_settings_have_been_saved_notification_"
+                                                "banner_text"])
 
-    def _click_settings_saved_notification_banner(self):
-        super()._click(self.__your_settings_have_been_saved_notification_banner_close_button)
+    def click_settings_saved_notification_banner(self):
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["your_settings_have_been_saved_"
+                                                        "notification_banner_close_button"])
 
-    def _click_on_all_settings_checkboxes(self):
-        for checkbox in super()._get_element_handles(self.__edit_settings_checkbox_options_label):
+    def click_on_all_settings_checkboxes(self):
+        """Click on all settings checkboxes"""
+        for checkbox in self._get_element_handles(
+                self.PROFILE_EDIT_SETTINGS_LOCATORS["edit_settings_checkbox_options_label"]):
             checkbox.click()
 
-    def _click_on_watch_forum_threads_i_start_checkbox(self):
-        super()._click(self.__watch_forum_threads_I_start_checkbox)
+    def click_on_watch_forum_threads_i_start_checkbox(self):
+        """Click on watch forum threads I start checkbox"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_forum_threads_I_start_checkbox"])
 
-    def _click_on_watch_forum_threads_i_comment_in_checkbox(self):
-        super()._click(self.__watch_forum_threads_I_comment_in_checkbox)
+    def click_on_watch_forum_threads_i_comment_in_checkbox(self):
+        """Click on watch forum threads I comment in checkbox"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_forum_threads_I_comment_in_"
+                                                        "checkbox"])
 
-    def _click_on_watch_kb_discussions_threads_i_start_checkbox(self):
-        super()._click(self.__watch_kb_discussions_threads_I_start_checkbox)
+    def click_on_watch_kb_discussions_threads_i_start_checkbox(self):
+        """Click on watch kb discussions threads I start checkbox"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_kb_discussions_threads_I_start_"
+                                                        "checkbox"])
 
-    def _click_on_watch_kb_discussions_threads_i_comment_checkbox(self):
-        super()._click(self.__watch_kb_discussion_threads_I_comment_in_checkbox)
+    def click_on_watch_kb_discussions_threads_i_comment_checkbox(self):
+        """Click on watch kb discussions threads I comment in checkbox"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_kb_discussion_threads_I_comment_"
+                                                        "in_checkbox"])
 
-    def _click_on_watch_question_threads_i_comment(self):
-        super()._click(self.__watch_question_threads_I_comment_in_checkbox)
+    def click_on_watch_question_threads_i_comment(self):
+        """Click on watch question threads I comment in checkbox"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_question_threads_I_comment_in_"
+                                                        "checkbox"])
 
-    def _click_on_send_emails_for_private_messages(self):
-        super()._click(self.__send_emails_for_private_messages_checkbox)
+    def click_on_send_emails_for_private_messages(self):
+        """Click on send emails for private messages checkbox"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["send_emails_for_private_messages_"
+                                                        "checkbox"])
 
-    def _click_on_update_button(self):
-        super()._click(self.__edit_settings_update_button)
+    def click_on_update_button(self):
+        """Click on update button"""
+        self._click(self.PROFILE_EDIT_SETTINGS_LOCATORS["edit_settings_update_button"])
 
-    def _is_watch_forum_threads_i_start_checkbox_checked(self) -> bool:
-        return super()._is_checkbox_checked(self.__watch_forum_threads_I_start_checkbox)
+    def is_watch_forum_threads_i_start_checkbox_checked(self) -> bool:
+        """Check if watch forum threads I start checkbox is checked"""
+        return self._is_checkbox_checked(self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_forum_threads_"
+                                                                             "I_start_checkbox"])
 
-    def _is_watch_forum_threads_i_comment_checkbox_checked(self) -> bool:
-        return super()._is_checkbox_checked(self.__watch_forum_threads_I_comment_in_checkbox)
+    def is_watch_forum_threads_i_comment_checkbox_checked(self) -> bool:
+        """Check if watch forum threads I comment in checkbox is checked"""
+        return self._is_checkbox_checked(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_forum_threads_I_comment_in_checkbox"])
 
-    def _is_watch_kb_discussion_threads_i_start_checkbox_checked(self) -> bool:
-        return super()._is_checkbox_checked(self.__watch_kb_discussions_threads_I_start_checkbox)
+    def is_watch_kb_discussion_threads_i_start_checkbox_checked(self) -> bool:
+        """Check if watch kb discussion threads I start checkbox is checked"""
+        return self._is_checkbox_checked(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_kb_discussions_threads_I_start_checkbox"])
 
-    def _is_watch_kb_discussion_threads_i_comment_checkbox_checked(self) -> bool:
-        return super()._is_checkbox_checked(
-            self.__watch_kb_discussion_threads_I_comment_in_checkbox)
+    def is_watch_kb_discussion_threads_i_comment_checkbox_checked(self) -> bool:
+        """Check if watch kb discussion threads I comment in checkbox is checked"""
+        return self._is_checkbox_checked(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_kb_discussion_threads_I_comment_in_"
+                                                "checkbox"])
 
-    def _is_watch_question_threads_i_comment_checkbox_checked(self) -> bool:
-        return super()._is_checkbox_checked(self.__watch_question_threads_I_comment_in_checkbox)
+    def is_watch_question_threads_i_comment_checkbox_checked(self) -> bool:
+        """Check if watch question threads I comment in checkbox is checked"""
+        return self._is_checkbox_checked(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["watch_question_threads_I_comment_in_checkbox"])
 
-    def _is_send_emails_for_private_messages_checkbox_checked(self) -> bool:
-        return super()._is_checkbox_checked(self.__send_emails_for_private_messages_checkbox)
+    def is_send_emails_for_private_messages_checkbox_checked(self) -> bool:
+        """Check if send emails for private messages checkbox is checked"""
+        return self._is_checkbox_checked(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["send_emails_for_private_messages_checkbox"])
 
-    def _notification_banner_element(self) -> Locator:
-        return super()._get_element_locator(
-            self.__your_settings_have_been_saved_notification_banner)
+    def notification_banner_element(self) -> Locator:
+        """Get the notification banner element"""
+        return self._get_element_locator(
+            self.PROFILE_EDIT_SETTINGS_LOCATORS["your_settings_have_been_saved_notification_"
+                                                "banner"])
 
-    def _are_all_checkbox_checked(self) -> bool:
-        is_checked = [
-            self._is_watch_forum_threads_i_start_checkbox_checked(),
-            self._is_watch_forum_threads_i_comment_checkbox_checked(),
-            self._is_watch_kb_discussion_threads_i_start_checkbox_checked(),
-            self._is_watch_kb_discussion_threads_i_comment_checkbox_checked(),
-            self._is_watch_question_threads_i_comment_checkbox_checked(),
-            self._is_watch_question_threads_i_comment_checkbox_checked(),
-            self._is_watch_question_threads_i_comment_checkbox_checked(),
-            self._is_send_emails_for_private_messages_checkbox_checked(),
-        ]
-
-        if False in is_checked:
-            return False
-        else:
-            return True
+    def are_all_checkbox_checked(self) -> bool:
+        """Check if all checkboxes are checked"""
+        print([
+            self.is_watch_forum_threads_i_start_checkbox_checked(),
+            self.is_watch_forum_threads_i_comment_checkbox_checked(),
+            self.is_watch_kb_discussion_threads_i_start_checkbox_checked(),
+            self.is_watch_kb_discussion_threads_i_comment_checkbox_checked(),
+            self.is_watch_question_threads_i_comment_checkbox_checked(),
+            self.is_send_emails_for_private_messages_checkbox_checked(),
+        ])
+        return all([
+            self.is_watch_forum_threads_i_start_checkbox_checked(),
+            self.is_watch_forum_threads_i_comment_checkbox_checked(),
+            self.is_watch_kb_discussion_threads_i_start_checkbox_checked(),
+            self.is_watch_kb_discussion_threads_i_comment_checkbox_checked(),
+            self.is_watch_question_threads_i_comment_checkbox_checked(),
+            self.is_send_emails_for_private_messages_checkbox_checked(),
+        ])

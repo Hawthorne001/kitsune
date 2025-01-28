@@ -165,7 +165,7 @@
           <span class="icon-button" data-has-dropdown>more options</span>
           <ul class="mzp-c-menu-list-list">
             {% if user.is_authenticated and question.allows_flag(user) %}
-              <li class="mzp-c-menu-list-item">{{ flag_form(url('questions.flag', question.id)) }}</li>
+              <li class="mzp-c-menu-list-item">{{ flag_form(url('questions.flag', question.id), question.id, content_moderation=True) }}</li>
             {% endif %}
             <li class="mzp-c-menu-list-item"><a class="quoted-reply" href="#question-reply" data-content-id="question-{{ question.id }}">{{ _('Quote') }}</a></li>
           </ul>
@@ -316,7 +316,7 @@
   {{ search_box(settings, id='support-search-sidebar', params=search_params, placeholder=_('Search Support')) }}
 </div>
 
-{{ aaq_widget(request, "question") }}
+{{ aaq_widget(request) }}
 
 <div class="questions-sidebar">
   <nav class="sidebar-nav is-action-list" id="question-tools">
@@ -390,45 +390,35 @@
           {% set tags = question.my_tags %}
           {% if tags or can_tag %}
             <div class="sidebox tight cf" id="tags">
-              <div class="tags"{% if can_tag %} data-tag-vocab-json="{{ tag_vocab() }}"{% endif %}{% if can_create_tags %} data-can-create-tags="1"{% endif %}>
-                {% if can_tag %}
-                  <form action="{{ url('questions.remove_tag', question.id) }}"
-                        data-action-async="{{ url('questions.remove_tag_async', question.id) }}"
-                        method="POST"
-                        class="remove-tag-form">
-                    {% csrf_token %}
-                {% endif %}
-                <ul class="tag-list cf{% if not can_tag %} immutable{% endif %}">
-                  {% for tag in tags %}
-                    <li class="tag">{# -#}
-                      <a class="tag-name" href="{{ url('questions.list', product.slug if product else 'all')|urlparams(tagged=tag.slug) }}">{{ tag }}</a>
-                      {%- if can_tag -%}
-                        <button type="submit" class="remover" data-type="submit" data-name="remove-tag-{{ tag }}">&#xd7;</button>
-                      {%- endif -%}
-                    </li>
-                  {% endfor %}
-                </ul>
-                {% if can_tag %}
-                  </form>
-                {% endif %}
+              <div class="tags"{% if can_tag %} data-tag-vocab-json="{{ tag_vocab() }}"{% endif %}>
 
                 {% if can_tag %}
                   {% if tag_adding_error %}
                     <p class="tag-error-message">{{ tag_adding_error }}</p>
-                  {% endif %}
-                  <form action="{{ url('questions.add_tag', question.id) }}"
-                        data-action-async="{{ url('questions.add_tag_async', question.id) }}"
-                        method="POST"
-                        class="tag-adder">
-                    {% csrf_token %}
-                    <div class="field is-condensed">
-                      <label for="id_tag_input">Add a tag:</label>
-                      <input id="id_tag_input" type="text" name="tag-name" size="12" maxlength="100"
-                        class="searchbox autocomplete-tags {% if tag_adding_error %} invalid{% endif %}"
-                        value="{{ tag_adding_value }}" />
+                  {% endif %} 
+                  <form id="tag-adder-form-{{ question.id }}">
+                    <div class="field">
+                      <select id="tag-select-{{ question.id }}" name="tags" multiple class="tag-select"
+                              data-add-url="{{ url('questions.add_tag_async', question.id) }}"
+                              data-remove-url="{{ url('questions.remove_tag_async', question.id) }}">
+                        {% for tag in all_tags %}
+                          <option value="{{ tag.id }}" 
+                                  data-url="{{ url('questions.list', product.slug if product else 'all')|urlparams(tagged=tag.slug) }}"
+                                  {% if tag in question.tags.all() %}selected{% endif %}>
+                            {{ tag.name }}
+                          </option>
+                        {% endfor %}
+                      </select>
                     </div>
-                    <input class="sumo-button button-sm primary-button" type="submit" value="{{ _('Add') }}" />
                   </form>
+                {% else %}
+                  <ul class="tag-list cf{% if not can_tag %} immutable{% endif %}">
+                    {% for tag in tags %}
+                      <li class="tag">{# -#}
+                        <a class="tag-name" href="{{ url('questions.list', product.slug if product else 'all')|urlparams(tagged=tag.slug) }}">{{ tag }}</a>
+                      </li>
+                    {% endfor %}
+                  </ul>
                 {% endif %}
               </div>
             </div>
@@ -447,7 +437,7 @@
                   {% if product %}
                     <span class="detail">{{ pgettext('DB: products.Product.title', product.title) }}</span>
                   {% endif %}
-                  {% if user and user.has_perm('questions.change_question') %}
+                  {% if not question.is_moderated and user and user.has_perm('questions.change_question') %}
                     <select id="details-product" name="product">
                       {% for p in all_products %}
                         <option {% if product and p.id == product.id %}selected="selected"{% endif %} value="{{ p.id }}" data-url="{{ url('products.product', p.slug) }}">{{ p.title }}</option>
@@ -463,7 +453,7 @@
                   {% if topic %}
                     <span class="detail">{{ pgettext('DB: products.Topic.title', topic.title) }}</span>
                   {% endif %}
-                  {% if user and user.has_perm('questions.change_question') %}
+                  {% if not question.is_moderated and user and user.has_perm('questions.change_question') %}
                     <select id="details-topic" name="topic">
                       {% for t in all_topics %}
                         <option {% if topic and t.id == topic.id %}selected="selected"{% endif %} value="{{ t.id }}">{{ t.title }}</option>
@@ -473,7 +463,7 @@
                 </div>
               {% endif %}
 
-              {% if user and user.has_perm('questions.change_question') %}
+              {% if not question.is_moderated and user and user.has_perm('questions.change_question') %}
                 <div class="sidebox tight condensed" id="question-locale">
                   <span class="title">{{ _('Locale') }}:</span>
                   <span class="detail">{{ settings.LANGUAGES_DICT[question.locale.lower()] }}</span>
@@ -510,10 +500,6 @@
 
                 <section id="more-system-details" class="mzp-u-modal-content text-body-md" title="{{ _('Additional System Details') }}" data-target="#show-more-details">
                   <h2 class="sumo-page-subheading">{{ _('Additional System Details') }}</h2>
-                  {% if question.metadata.sites_affected %}
-                  <h3 class="sumo-card-heading">{{ _('Sites Affected') }}</h3>
-                  <p>{{ question.metadata.sites_affected }}</p>
-                  {% endif %}
                   {% if question.metadata.crash_id %}
                   <h3 class="sumo-card-heading">{{ _('Crash ID') }}</h3>
                   <p>{{ question.metadata.crash_id }}</p>
@@ -536,7 +522,7 @@
                 </section>
               </div>
 
-              {% if user and user.has_perm('questions.change_question') %}
+              {% if not question.is_moderated and user and user.has_perm('questions.change_question') %}
                 <div class="sidebox tight">
                   <a href="#" id="details-edit">{{ _('Edit details') }}</a>
                 </div>

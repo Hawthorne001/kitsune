@@ -6,12 +6,12 @@ import actstream.actions
 from actstream.models import Follow
 from rest_framework.exceptions import APIException
 from rest_framework.test import APIClient
-from taggit.models import Tag
 
 from kitsune.products.tests import ProductFactory, TopicFactory
 from kitsune.questions import api
 from kitsune.questions.models import Answer, Question
 from kitsune.questions.tests import (
+    AAQConfigFactory,
     AnswerFactory,
     AnswerVoteFactory,
     QuestionFactory,
@@ -30,7 +30,7 @@ class TestQuestionSerializerDeserialization(TestCase):
     def setUp(self):
         self.user = UserFactory()
         self.product = ProductFactory()
-        self.topic = TopicFactory(product=self.product)
+        self.topic = TopicFactory(products=[self.product])
         self.request = mock.Mock()
         self.request.user = self.user
         self.context = {
@@ -82,7 +82,7 @@ class TestQuestionSerializerDeserialization(TestCase):
         # First make another product, and a colliding topic.
         # It has the same slug, but a different product.
         new_product = ProductFactory()
-        TopicFactory(product=new_product, slug=self.topic.slug)
+        TopicFactory(products=[new_product], slug=self.topic.slug)
         serializer = api.QuestionSerializer(context=self.context, data=self.data)
         serializer.is_valid(raise_exception=True)
         obj = serializer.save()
@@ -205,7 +205,7 @@ class TestQuestionViewSet(TestCase):
     def test_create(self):
         u = UserFactory()
         p = ProductFactory()
-        t = TopicFactory(product=p)
+        t = TopicFactory(products=[p])
         self.client.force_authenticate(user=u)
         data = {
             "title": "How do I start Firefox?",
@@ -471,23 +471,6 @@ class TestQuestionViewSet(TestCase):
         self.assertEqual(res.status_code, 204)
         self.assertEqual(Follow.objects.filter(user=u).count(), 0)
 
-    def test_add_tags(self):
-        q = QuestionFactory()
-        self.assertEqual(0, q.tags.count())
-
-        u = UserFactory()
-        add_permission(u, Tag, "add_tag")
-        add_permission(u, Question, "tag_question")
-        self.client.force_authenticate(user=u)
-
-        res = self.client.post(
-            reverse("question-add-tags", args=[q.id]),
-            content_type="application/json",
-            data=json.dumps({"tags": ["test", "more", "tags"]}),
-        )
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(3, q.tags.count())
-
     def test_remove_tags_without_perms(self):
         q = QuestionFactory()
         q.tags.add("test")
@@ -535,8 +518,11 @@ class TestQuestionViewSet(TestCase):
 
     def test_auto_tagging(self):
         """Test that questions created via the API are auto-tagged."""
-        TagFactory(name="desktop")
-        q = QuestionFactory()
+        tag = TagFactory(name="desktop")
+        product = ProductFactory()
+        AAQConfigFactory(product=product, is_active=True, associated_tags=[tag])
+
+        q = QuestionFactory(product=product)
         self.client.force_authenticate(user=q.creator)
         tags_eq(q, [])
 

@@ -12,20 +12,26 @@
   <h1 class="sumo-page-heading">{{ document.title }}</h1>
 {%- endmacro %}
 
-{% macro document_metadata(created_date, product_titles, helpful_votes, metadata_type) -%}
+{% macro document_metadata(created_date, is_first_revision, product_titles, helpful_votes, metadata_type) -%}
   {% set truncate_length = 25 if helpful_votes else 50 %}
   <div id="document_metadata" class="{% if metadata_type=="list" %}has-border-top{% else %}has-border-bottom{% endif %}">
     <span class="product tooltip-container">
       {{ product_titles | truncate(truncate_length) }}
       <span class="tooltip">{{ product_titles }}</span>
     </span>
-    <span class="last-updated">
-      <img class="pencil" src="{{ webpack_static('sumo/img/pencil.svg') }}" /> <strong>{{ _("Last updated") }}:</strong> <span class="time">{{ created_date|naturaltime }}</span>
-    </span>
+    {% if created_date %}
+      <span class="last-updated">
+       <img class="pencil" src="{{ webpack_static('sumo/img/pencil.svg') }}" />
+       <strong>{% if is_first_revision %}{{ _("Created") }}{% else %}{{ _("Last updated") }}{% endif %}:</strong>
+        <span class="time">
+          {{ datetimeformat(created_date, format="shortdate", use_naturaltime=True) }}
+        </span>
+      </span>
+    {% endif %}
     {% if helpful_votes %}
-    <span class="helpful-info">
-      <img class="thumbsup" src="{{ webpack_static('sumo/img/thumbs-up.svg') }}"/>{{ _('<span class="{0}">{1}{2}</span> of users voted this helpful')|fe("helpful-count", helpful_votes, "%") }}
-    </span>
+      <span class="helpful-info">
+        <img class="thumbsup" src="{{ webpack_static('sumo/img/thumbs-up.svg') }}"/>{# L10n: {0} is 'helpful-count', {1} is the actual percentage and {2} is the percent sign. #}{{ _('<span class="{0}">{1}{2}</span> of users voted this helpful')|fe("helpful-count", helpful_votes, "%") }}
+      </span>
     {% endif %}
   </div>
 {%- endmacro %}
@@ -268,96 +274,103 @@
 {%- endmacro %}
 
 {% macro show_for(products, header=None, close_button=False) -%}
-  {% if header == None %}
-    {% set header = _('Help with:') %}
-  {% endif %}
-
-  <section class="showfor" id="showfor-panel">
-    <script type="application/json" class="showfor-data">
-      {{ showfor_data(products) }}
-    </script>
-
-    <h3 class="{% if close_button %}sumo-card-heading{% else %}sidebar-subheading force-top-margin{% endif %}">{{ _('Customize this article') }}</h3>
-    {% if header %}
-      <p>
-        {{ header }}
-        {% if close_button %}
-          <span class="exit close-button" data-close-id="showfor-panel">&times;</span>
-        {% endif %}
-      </p>
+  {% if products|selectattr("visible")|list %}
+    {% if header == None %}
+      {% set header = _('Help with:') %}
     {% endif %}
 
-    {% for prod in products %}
-      {% if prod.visible %}
-        {% set has_versions = prod.versions.count() > 1 %}
-        {% set has_platforms = prod.platforms.count() > 1 %}
+    <section class="showfor" id="showfor-panel">
+      <script type="application/json" class="showfor-data">
+        {{ showfor_data(products) }}
+      </script>
 
-        <div class="product" data-product="{{ prod.slug }}">
-          <div class="field checkbox is-condensed">
-            <input
-              type="checkbox"
-              id="id_{{ prod.slug}}"
-              checked
-              value="product:{{ prod.slug }}"
-            />
-            <label for="id_{{ prod.slug}}">{{ prod.title }}</label>
-          </div>
-
-
-
-
-          {% if has_versions %}
-            <div class="selectbox-wrapper">
-              <select class="version">
-                {% for version in prod.versions.all() %}
-                  {% if version.visible %}
-                    <option value="version:{{ version.slug }}"
-                            data-min="{{ version.min_version }}"
-                            data-max="{{ version.max_version }}"
-                            {% if version.default %}selected{% endif %}>
-                      {{ version.name }}
-                    </option>
-                  {% endif %}
-                {% endfor %}
-              </select>
-            </div>
+      <h3 class="{% if close_button %}sumo-card-heading{% else %}sidebar-subheading force-top-margin{% endif %}">{{ _('Customize this article') }}</h3>
+      {% if header %}
+        <p>
+          {{ header }}
+          {% if close_button %}
+            <span class="exit close-button" data-close-id="showfor-panel">&times;</span>
           {% endif %}
-
-          {% if has_platforms %}
-            <div class="selectbox-wrapper">
-              <select class="platform">
-                {% for platform in prod.platforms.all() %}
-                  {% if platform.visible %}
-                    <option value="platform:{{ platform.slug }}" {% if platform.default %}selected{% endif %}>
-                      {{ platform.name }}
-                    </option>
-                  {% endif %}
-                {% endfor %}
-              </select>
-            </div>
-          {% endif %}
-        </div>
+        </p>
       {% endif %}
-    {% endfor %}
 
-  </section>
+      {% for prod in products %}
+        {% if prod.visible %}
+          {% set has_versions = prod.versions.count() > 1 %}
+          {% set has_platforms = prod.platforms.count() > 1 %}
 
+          <div class="product" data-product="{{ prod.slug }}">
+            <div class="field checkbox is-condensed">
+              <input
+                type="checkbox"
+                id="id_{{ prod.slug}}"
+                checked
+                value="product:{{ prod.slug }}"
+              />
+              <label for="id_{{ prod.slug}}">{{ prod.title }}</label>
+            </div>
+
+            {% if has_versions %}
+              <div class="selectbox-wrapper">
+                <select class="version">
+                  {% for version in prod.versions.all() %}
+                    {% if version.visible %}
+                      <option value="version:{{ version.slug }}"
+                              data-min="{{ version.min_version }}"
+                              data-max="{{ version.max_version }}"
+                              {% if version.default %}selected{% endif %}>
+                        {{ version.name }}
+                      </option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+            {% endif %}
+
+            {% if has_platforms %}
+              <div class="selectbox-wrapper">
+                <select class="platform">
+                  {% for platform in prod.platforms.all() %}
+                    {% if platform.visible %}
+                      <option value="platform:{{ platform.slug }}" {% if platform.default %}selected{% endif %}>
+                        {{ platform.name }}
+                      </option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
 {%- endmacro %}
 
 {% macro vote_form(document, source=None) -%}
   {% if not header %}
     {% set header = _('Was this article helpful?') %}
   {% endif %}
-  {% if document.allows_vote(request) %}
-    <div class="document-vote elevation-01 text-center">
-      <form class="document-vote--form helpful" action="{{ url('wiki.document_vote', document_slug=document.slug) }}" method="post">
+  {% if document.allows_vote(request) and not document.current_revision.has_voted(request) %}
+    <div class="document-vote elevation-02 text-center" data-page-url="{{ request.path }}">
+      <form class="document-vote--form helpful"
+            hx-post="{{ url('wiki.document_vote', document_slug=document.slug) }}"
+            hx-indicator=".wait"
+            hx-target="this"
+            hx-swap="outerHTML">
           {% csrf_token %}
           <h4 class="document-vote--heading">{{ header }}</h4>
           <div class="document-vote--buttons">
             <input type="hidden" name="revision_id" value="{{ document.current_revision.id }}" />
             {% if source %}<input type="hidden" name="source" value="{{ source }}" />{% endif %}
-            <button type="submit" class="btn helpful-button" name="helpful"><span class="hidden-text">{{ _('Yes') }}</span>👍</button>
-            <button type="submit" class="btn not-helpful-button" name="not-helpful"><span class="hidden-text">{{ _('No') }}</span>👎</button>
+            <button type="submit" class="btn helpful-button" name="helpful"
+                    data-event-name="article_vote"
+                    data-event-parameters='{"vote": "helpful"}'
+            >{{ _('Yes') }}👍</button>
+            <button type="submit" class="btn not-helpful-button" name="not-helpful"
+                    data-event-name="article_vote"
+                    data-event-parameters='{"vote": "not-helpful"}'
+            >{{ _('No') }}👎</button>
             <img class="wait" src="{{ webpack_static('sumo/img/spinner.gif') }}" alt="{{ _('Please wait...') }}" />
           </div>
       </form>
@@ -427,8 +440,8 @@
   {% endif %}
 {% endmacro %}
 
-{% macro inpage_contact_cta(product=None, product_key=None) %}
-{% if product_key %}
+{% macro inpage_contact_cta(product=None, product_slug=None) %}
+{% if product_slug %}
   <section class="support-callouts mzp-l-content sumo-page-section--inner">
     <div class="card card--ribbon is-inverse heading-is-one-line">
       <div class="card--details">
@@ -447,11 +460,11 @@
             {{ _("If you've tried the steps above and you're still unable to sign in, send a message to our support team.") }}
         </p>
         <a class="sumo-button primary-button button-lg"
-          href="{{ url('questions.aaq_step3', product_key=product_key) }}"
+          href="{{ url('questions.aaq_step3', product_slug=product_slug) }}"
           data-event-name="link_click"
           data-event-parameters='{
             "link_name": "in-article-aaq-banner.aaq-step-3",
-            "link_detail": "{{ product_key }}"
+            "link_detail": "{{ product_slug }}"
           }'>
             {{ _('Contact Support') }}
         </a>

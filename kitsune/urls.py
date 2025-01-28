@@ -4,10 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 from django.views.static import serve as servestatic
 from graphene_django.views import GraphQLView
-from waffle.decorators import waffle_flag
 from waffle.views import wafflejs
-from wagtail.urls import serve_pattern
-import wagtail.views
 
 from kitsune.dashboards.api import WikiMetricList
 from kitsune.sumo import views as sumo_views
@@ -28,36 +25,27 @@ urlpatterns = i18n_patterns(
     path("search/", include("kitsune.search.urls")),
     path("forums/", include("kitsune.forums.urls")),
     path("questions/", include("kitsune.questions.urls")),
-    path("flagged/", include("kitsune.flagit.urls")),
     path("upload/", include("kitsune.upload.urls")),
     path("gallery/", include("kitsune.gallery.urls")),
     path("chat", RedirectView.as_view(url="questions/new")),
     path("messages/", include("kitsune.messages.urls")),
     path("groups/", include("kitsune.groups.urls")),
     path("kpi/", include("kitsune.kpi.urls")),
-    path("products/", include("kitsune.products.urls")),
     path("announcements/", include("kitsune.announcements.urls")),
     path("community/", include("kitsune.community.urls")),
     path("badges/", include("kitsune.kbadge.urls")),
+    path("locales", sumo_views.locales, name="sumo.locales"),
+    path("", include("kitsune.products.urls")),
     path("", include("kitsune.dashboards.urls")),
     path("", include("kitsune.landings.urls")),
     path("", include("kitsune.tidings.urls")),
     path("", include("kitsune.users.urls")),
-    path("locales", sumo_views.locales, name="sumo.locales"),
-    re_path(r"^windows7-support(?:\\/)?$", RedirectView.as_view(url="/home/?as=u")),
-    re_path(
-        rf"wagtail/{serve_pattern.lstrip('^')}",
-        waffle_flag("wagtail_experiments")(wagtail.views.serve),
-        name="wagtail_serve",
-    ),
+    path("", include("kitsune.flagit.urls")),
 )
 
 if settings.OIDC_ENABLE:
     urlpatterns.append(path("", include("kitsune.users.urls_oidc")))
 
-if settings.WAGTAIL_ENABLE_ADMIN:
-    urlpatterns.append(path("cms/login/", sumo_views.cms_login, name="wagtailadmin_login"))
-    urlpatterns.append(path("cms/", include("wagtail.admin.urls")))
 
 urlpatterns += [
     path("1/", include("kitsune.inproduct.urls")),
@@ -102,12 +90,8 @@ if settings.DEBUG:
         ),
     ]
 
-if settings.SHOW_DEBUG_TOOLBAR:
-    import debug_toolbar
-
-    urlpatterns += [
-        re_path("__debug__/", include(debug_toolbar.urls)),
-    ]
+if settings.SHOW_DEBUG_INFO:
+    urlpatterns += [path("silk/", include("silk.urls", namespace="silk"))]
 
 
 if settings.ENABLE_ADMIN:

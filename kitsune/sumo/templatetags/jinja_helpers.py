@@ -7,28 +7,27 @@ from zoneinfo import ZoneInfo
 
 import bleach
 import jinja2
-from babel import localedata
+import wikimarkup.parser
 from babel.dates import format_date, format_datetime, format_time
 from babel.numbers import format_decimal
 from django.conf import settings
+from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.http import QueryDict
 from django.template.loader import render_to_string
 from django.templatetags.static import static as django_static
-from django.utils.encoding import smart_bytes
-from django.utils.encoding import smart_str
+from django.utils.encoding import smart_bytes, smart_str
 from django.utils.http import urlencode
 from django.utils.timezone import get_default_timezone, is_aware, is_naive
+from django.utils.timezone import now as django_now
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as _lazy
 from django.utils.translation import ngettext
 from django_jinja import library
 from markupsafe import Markup, escape
-import wikimarkup.parser
 
-from kitsune.products.models import Product
 from kitsune.sumo import parser
 from kitsune.sumo.urlresolvers import reverse
-from kitsune.sumo.utils import in_staff_group, is_trusted_user, webpack_static
+from kitsune.sumo.utils import has_aaq_config, in_staff_group, is_trusted_user, webpack_static
 from kitsune.users.models import Profile
 from kitsune.wiki.showfor import showfor_data as _showfor_data
 
@@ -48,6 +47,7 @@ class DateTimeFormatError(Exception):
 library.global_function(webpack_static)
 library.global_function(is_trusted_user)
 library.global_function(in_staff_group)
+library.global_function(has_aaq_config)
 
 
 @library.filter
@@ -233,15 +233,12 @@ def _babel_locale(locale):
 def _contextual_locale(context):
     """Return locale from the context, falling back to a default if invalid."""
     request = context.get("request")
-    locale = request.LANGUAGE_CODE
-    if not localedata.exists(locale):
-        locale = settings.LANGUAGE_CODE
-    return locale
+    return request.LANGUAGE_CODE if request else settings.LANGUAGE_CODE
 
 
 @jinja2.pass_context
 @library.global_function
-def datetimeformat(context, value, format="shortdatetime"):
+def datetimeformat(context, value, format="shortdatetime", use_naturaltime=False):
     """
     Returns a formatted date/time using Babel's locale settings. Uses the
     timezone from settings.py, if the user has not been authenticated.
@@ -276,18 +273,21 @@ def datetimeformat(context, value, format="shortdatetime"):
     convert_value = new_value.astimezone(convert_tzinfo)
     locale = _babel_locale(_contextual_locale(context))
 
-    # If within a day, 24 * 60 * 60 = 86400s
-    if format == "shortdatetime":
+    if use_naturaltime and (django_now().astimezone(convert_tzinfo) - convert_value).days < 30:
+        return naturaltime(convert_value)
+
+    if format == "shortdatetime" or format == "shortdate":
         # Check if the date is today
         today = datetime.datetime.now(tz=convert_tzinfo).toordinal()
+        kwargs = {"format": "short", "tzinfo": convert_tzinfo, "locale": locale}
         if convert_value.toordinal() == today:
-            formatted = _lazy("Today at %s") % format_time(
-                convert_value, format="short", tzinfo=convert_tzinfo, locale=locale
-            )
+            formatted = _lazy("Today at %s") % format_time(convert_value, **kwargs)
         else:
-            formatted = format_datetime(
-                convert_value, format="short", tzinfo=convert_tzinfo, locale=locale
-            )
+            if format == "shortdatetime":
+                formatted = format_datetime(convert_value, **kwargs)
+            else:
+                del kwargs["tzinfo"]
+                formatted = format_date(convert_value, **kwargs)
     elif format == "longdatetime":
         formatted = format_datetime(
             convert_value, format="long", tzinfo=convert_tzinfo, locale=locale
@@ -520,23 +520,6 @@ def fe(format_string, *args, **kwargs):
     return Markup(format_string.format(*args, **kwargs))
 
 
-@library.global_function
-def image_for_product(product_slug):
-    """
-    Return square/alternate image for product slug
-    """
-    default_image = webpack_static("products/img/product_placeholder_alternate.png")
-
-    if not product_slug:
-        return default_image
-
-    try:
-        obj = Product.objects.get(slug=product_slug)
-    except Product.DoesNotExist:
-        return default_image
-    return obj.image_alternate_url
-
-
 @jinja2.pass_context
 @library.global_function
 def show_header_fx_download(context):
@@ -561,3 +544,11 @@ def show_header_fx_download(context):
         return product.slug != "firefox"
     else:
         return True
+
+
+@library.filter
+def slug_to_title(slug):
+    """
+    Convert a slug to a title.
+    """
+    return slug.replace("-", " ").capitalize()

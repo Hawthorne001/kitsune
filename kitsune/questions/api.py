@@ -9,7 +9,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import pagination, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from taggit.models import Tag
 
 from kitsune.products.api_utils import TopicField
 from kitsune.products.models import Product, Topic
@@ -30,6 +29,7 @@ from kitsune.sumo.api_utils import (
     SplitSourceField,
 )
 from kitsune.sumo.utils import is_ratelimited
+from kitsune.tags.models import SumoTag
 from kitsune.tags.utils import add_existing_tag
 from kitsune.users.api import ProfileFKSerializer
 from kitsune.users.models import Profile
@@ -56,13 +56,13 @@ class QuestionSerializer(serializers.ModelSerializer):
     metadata = QuestionMetaDataSerializer(source="metadata_set", read_only=True, many=True)
     num_votes = serializers.ReadOnlyField()
     product = serializers.SlugRelatedField(
-        required=True, slug_field="slug", queryset=Product.objects.all()
+        required=True, slug_field="slug", queryset=Product.active.all()
     )
     tags = serializers.SerializerMethodField()
     solution = serializers.PrimaryKeyRelatedField(read_only=True)
     solved_by = serializers.SerializerMethodField()
     taken_by = serializers.SerializerMethodField()
-    topic = TopicField(required=True, queryset=Topic.objects.all())
+    topic = TopicField(required=True, queryset=Topic.active.all())
     updated = DateTimeUTCField(read_only=True)
     updated_by = serializers.SerializerMethodField()
 
@@ -386,13 +386,10 @@ class QuestionViewSet(viewsets.ModelViewSet):
         for tag in tags:
             try:
                 add_existing_tag(tag, question.tags)
-            except Tag.DoesNotExist:
-                if request.user.has_perm("taggit.add_tag"):
-                    question.tags.add(tag)
-                else:
-                    raise GenericAPIException(
-                        status.HTTP_403_FORBIDDEN, "You are not authorized to create new tags."
-                    )
+            except SumoTag.DoesNotExist:
+                raise GenericAPIException(
+                    status.HTTP_403_FORBIDDEN, "You are not authorized to create new tags."
+                )
 
         data = [{"name": tag.name, "slug": tag.slug} for tag in question.tags.all()]
         return Response(data)

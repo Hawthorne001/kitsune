@@ -4,18 +4,17 @@
     "Firefox for Android",
     "Firefox for iOS",
     "Firefox for Enterprise",
-    "Firefox Reality",
     "Thunderbird",
+    "Thunderbird for Android",
     "Firefox Focus"
   ],
   "premium_products": [
     "MDN Plus",
     "Mozilla VPN",
-    "Firefox Private Network",
     "Firefox Relay",
     "Pocket",
-    "Hubs",
-    "Mozilla Account"
+    "Mozilla Account",
+    "Mozilla Monitor"
   ],
   "kb_article_categories": [
     "Troubleshooting",
@@ -27,18 +26,16 @@
     "Canned Responses"
   ],
   "product_topics": {
-    "Firefox": "https://support.allizom.org/en-US/products/firefox/fix-problems",
-    "Firefox for Android": "https://support.allizom.org/en-US/products/mobile/fix-problems",
-    "Firefox for iOS": "https://support.allizom.org/en-US/products/ios/install-and-update-firefox-ios",
-    "Firefox for Enterprise": "https://support.allizom.org/en-US/products/firefox-enterprise/deploy-firefox-for-enterprise",
+    "Firefox": "https://support.allizom.org/en-US/products/firefox/browse",
+    "Firefox for Android": "https://support.allizom.org/en-US/products/mobile/browse",
+    "Firefox for iOS": "https://support.allizom.org/en-US/products/ios/browse",
+    "Firefox for Enterprise": "https://support.allizom.org/en-US/products/firefox-enterprise/installation-and-updates",
     "MDN Plus": "https://support.allizom.org/en-US/products/mdn-plus/getting-started",
-    "Firefox Reality": "https://support.allizom.org/en-US/products/firefox-reality/get-started",
-    "Mozilla VPN": "https://support.allizom.org/en-US/products/firefox-private-network-vpn/download-setup",
-    "Firefox Private Network": "https://support.allizom.org/en-US/products/firefox-private-network/accounts",
+    "Mozilla VPN": "https://support.allizom.org/en-US/products/firefox-private-network-vpn/accounts",
     "Firefox Relay": "https://support.allizom.org/en-US/products/relay/technical",
     "Pocket": "https://support.allizom.org/en-US/products/pocket/pocket-for-ios",
-    "Hubs": "https://support.allizom.org/en-US/products/hubs/hubs-get-started",
-    "Thunderbird": "https://support.allizom.org/en-US/products/thunderbird/privacy-and-security-settings",
+    "Thunderbird": "https://support.allizom.org/en-US/products/thunderbird/settings",
+    "Thunderbird for Android": "https://support.allizom.org/en-US/products/thunderbird-android/settings",
     "Firefox Focus": "https://support.allizom.org/en-US/products/focus-firefox/Focus-ios",
     "Mozilla Account": "https://support.allizom.org/en-US/products/mozilla-account/passwords-recovery"
   },
@@ -51,26 +48,34 @@
     "Mozilla Monitor": "https://support.allizom.org/en-US/products/monitor",
     "Pocket": "https://support.allizom.org/en-US/products/pocket",
     "MDN Plus": "https://support.allizom.org/en-US/products/mdn-plus",
-    "Hubs": "https://support.allizom.org/en-US/products/hubs",
     "Firefox Focus": "https://support.allizom.org/en-US/products/focus-firefox",
     "Firefox for Enterprise": "https://support.allizom.org/en-US/products/firefox-enterprise",
-    "Thunderbird": "https://support.allizom.org/en-US/products/thunderbird"
+    "Thunderbird": "https://support.allizom.org/en-US/products/thunderbird",
+    "Thunderbird for Android": "https://support.allizom.org/en-US/products/thunderbird-android"
   },
   "product_solutions": {
-    "Firefox": "https://support.allizom.org/en-US/questions/new/desktop",
+    "Firefox": "https://support.allizom.org/en-US/questions/new/firefox",
     "Firefox for Android": "https://support.allizom.org/en-US/questions/new/mobile",
     "Firefox for iOS": "https://support.allizom.org/en-US/questions/new/ios",
     "Firefox for Enterprise": "https://support.allizom.org/en-US/questions/new/firefox-enterprise",
     "MDN Plus": "https://support.allizom.org/en-US/questions/new/mdn-plus",
-    "Firefox Reality": "https://support.allizom.org/en-US/questions/new/firefox-reality",
     "Mozilla VPN": "https://support.allizom.org/en-US/questions/new/firefox-private-network-vpn",
-    "Firefox Private Network": "https://support.allizom.org/en-US/questions/new/firefox-private-network",
+    "Mozilla Monitor": "https://support.allizom.org/en-US/questions/new/monitor",
     "Firefox Relay": "https://support.allizom.org/en-US/questions/new/relay",
     "Pocket": "https://support.allizom.org/en-US/questions/new/pocket",
-    "Hubs": "https://support.allizom.org/en-US/questions/new/hubs",
     "Thunderbird": "https://support.allizom.org/en-US/questions/new/thunderbird",
-    "Firefox Focus": "https://support.allizom.org/en-US/questions/new/focus",
+    "Thunderbird for Android": "https://support.allizom.org/en-US/questions/new/thunderbird-android",
+    "Firefox Focus": "https://support.allizom.org/en-US/questions/new/focus-firefox",
     "Mozilla Account": "https://support.allizom.org/en-US/questions/new/mozilla-account"
+  },
+  "product_forums" :{
+      "Firefox": "https://support.allizom.org/en-US/questions/firefox",
+      "Firefox for Android": "https://support.allizom.org/en-US/questions/mobile",
+      "Firefox for iOS": "https://support.allizom.org/en-US/questions/ios",
+      "Firefox for Enterprise": "https://support.allizom.org/en-US/questions/firefox-enterprise",
+      "Firefox Focus": "https://support.allizom.org/en-US/questions/focus-firefox",
+      "Thunderbird": "https://support.allizom.org/en-US/questions/thunderbird",
+      "Thunderbird for Android": "https://support.allizom.org/en-US/questions/thunderbird-android"
   },
   "dashboard_links": {
     "recent_revisions": "https://support.allizom.org/en-US/kb/revisions",
@@ -82,7 +87,7 @@
     "article_discussions": "https://support.allizom.org/en-US/kb/all/discussions"
   },
   "groups": "https://support.allizom.org/en-US/groups/",
-  "testGroup1users": ["TEST_ACCOUNT_MESSAGE_1", "TEST_ACCOUNT_MESSAGE_2", "TEST_ACCOUNT_MESSAGE_3", "TEST_ACCOUNT_MESSAGE_4"],
-  "testGroup2users": ["TEST_ACCOUNT_MESSAGE_4", "TEST_ACCOUNT_MESSAGE_5", "TEST_ACCOUNT_MESSAGE_6"],
+  "testGroup1users": ["TEST_ACCOUNT_MESSAGE_1", "TEST_ACCOUNT_MESSAGE_2", "TEST_ACCOUNT_MESSAGE_3"],
+  "testGroup2users": ["TEST_ACCOUNT_MESSAGE_3", "TEST_ACCOUNT_MESSAGE_4"],
   "test_article_link": "https://support.allizom.org/en-US/kb/donotdelete"
 }

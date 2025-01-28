@@ -15,7 +15,8 @@ from django.urls import is_valid_path
 from django.utils import translation
 from django.utils.encoding import smart_bytes
 from django.utils.functional import cached_property
-from django.utils.translation import gettext_lazy as _lazy, gettext as _
+from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _lazy
 from pyquery import PyQuery
 
 from kitsune.gallery.models import Image
@@ -45,10 +46,9 @@ from kitsune.wiki.config import (
     TYPO_SIGNIFICANCE,
 )
 from kitsune.wiki.managers import DocumentManager, RevisionManager
-
 from kitsune.wiki.permissions import (
-    can_delete_documents_or_review_revisions,
     DocumentPermissionMixin,
+    can_delete_documents_or_review_revisions,
 )
 
 log = logging.getLogger("k.wiki")
@@ -74,7 +74,9 @@ class Document(NotificationsMixin, ModelBase, DocumentPermissionMixin):
     # Is this document localizable or not?
     is_localizable = models.BooleanField(default=True, db_index=True)
 
-    restrict_to_groups = models.ManyToManyField(Group, related_name="restricted_documents")
+    restrict_to_groups = models.ManyToManyField(
+        Group, blank=True, related_name="restricted_documents"
+    )
 
     # TODO: validate (against settings.SUMO_LANGUAGES?)
     locale = LocaleField(default=settings.WIKI_DEFAULT_LANGUAGE, db_index=True)
@@ -429,7 +431,7 @@ class Document(NotificationsMixin, ModelBase, DocumentPermissionMixin):
     def related_products(self):
         related_pks = [d.pk for d in self.related_documents.all()]
         related_pks.append(self.pk)
-        return Product.objects.filter(document__in=related_pks).distinct()
+        return Product.active.filter(document__in=related_pks).distinct()
 
     @property
     def is_hidden_from_search_engines(self):
@@ -638,7 +640,7 @@ class Document(NotificationsMixin, ModelBase, DocumentPermissionMixin):
         if self.parent:
             return self.parent.get_topics()
 
-        return Topic.objects.filter(document=self)
+        return Topic.active.filter(document=self)
 
     def get_products(self):
         """Return the list of products that apply to this document.
@@ -648,7 +650,7 @@ class Document(NotificationsMixin, ModelBase, DocumentPermissionMixin):
         if self.parent:
             return self.parent.get_products()
 
-        return Product.objects.filter(document=self)
+        return Product.active.filter(document=self)
 
     @property
     def recent_helpful_votes(self):

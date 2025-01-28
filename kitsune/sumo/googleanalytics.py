@@ -33,6 +33,7 @@ PERIOD_TO_DAYS_AGO = {
     LAST_90_DAYS: "90daysAgo",
     LAST_YEAR: "365daysAgo",
 }
+VALID_LOCALES = frozenset(lang for lang in settings.SUMO_LANGUAGES if lang != "xx")
 
 
 def get_client():
@@ -86,9 +87,13 @@ def create_page_view_report_request(content_group, date_range, offset=0, limit=1
     only for page views of the given content group, and limited to the results with the
     given offset and limit.
     """
+    dimensions = [Dimension(name="pagePath")]
+    if content_group == "kb-article":
+        dimensions.append(Dimension(name="customEvent:article_locale"))
+
     return RunReportRequest(
         property=f"properties/{settings.GA_PROPERTY_ID}",
-        dimensions=[Dimension(name="pagePath")],
+        dimensions=dimensions,
         metrics=[Metric(name="eventCount")],
         date_ranges=[date_range],
         dimension_filter=FilterExpression(
@@ -281,21 +286,43 @@ def visitors_by_locale(start_date, end_date, verbose=False):
 
 def pageviews_by_document(period, verbose=False):
     """
-    A generator that yields tuples of ((locale, slug), num_page_views) for every
-    KB article with one or more page views within the given period.
+    Returns a dictionary where the keys are (locale, slug) and the values are the
+    number of pageviews of the KB article at that locale and slug, within the given
+    period.
     """
     date_range = DateRange(start_date=PERIOD_TO_DAYS_AGO[period], end_date="today")
 
+    pageviews_by_locale_and_slug = {}
+
     for row in run_report(date_range, create_article_report_request, verbose=verbose):
         path = row.dimension_values[0].value
-        num_page_views = int(row.metric_values[0].value)
-        # The path is guaranteed to be a KB article path without any query parameters.
-        # If the URL path for KB articles changes, we'll need to continue to support
-        # the previous URL structure for a year -- the longest period of time we look
-        # backwards -- as well as the new URL structure.
+        article_locale = row.dimension_values[1].value
+        # The path should be a KB article path without any query parameters, but in reality
+        # we've seen that it can sometimes be "/". If the URL path for KB articles changes,
+        # we'll need to continue to support the previous URL structure for a year -- the
+        # longest period of time we look backwards -- as well as the new URL structure.
         # Current URL structure: /{locale}/kb/{slug}
-        locale, slug = path.strip("/").split("/kb/")
-        yield ((locale, slug), num_page_views)
+        try:
+            num_page_views = int(row.metric_values[0].value)
+            url_locale, slug = path.strip("/").split("/kb/")
+        except ValueError:
+            continue
+        # The locale of the article displayed -- the "article_locale" -- can be different
+        # from the locale in the URL due to locale fallbacks. There was a period during
+        # which the "article_locale" dimension did not exist in GA4, so we'll default to
+        # the locale in the URL if a valid "article_locale" value doesn't exist for this
+        # row (for example, "" or "(not set)").
+        article_locale = article_locale if article_locale in VALID_LOCALES else url_locale
+        # In this case, for KB articles, the "run_report" will always return one row for
+        # each unique "url_locale" and "slug" pair. However, due to locale fallbacks (for
+        # example, the "az" "captive-portal" page is requested but the "en-US" page is
+        # returned) there can be multiple rows of any given pair of "article_locale" and
+        # "slug", so we need to accumulate the sum of all of those rows.
+        pageviews_by_locale_and_slug[(article_locale, slug)] = (
+            pageviews_by_locale_and_slug.get((article_locale, slug), 0) + num_page_views
+        )
+
+    return pageviews_by_locale_and_slug
 
 
 def pageviews_by_question(period=LAST_YEAR, verbose=False):
@@ -305,16 +332,28 @@ def pageviews_by_question(period=LAST_YEAR, verbose=False):
     """
     date_range = DateRange(start_date=PERIOD_TO_DAYS_AGO[period], end_date="today")
 
+    pageviews_by_id = {}
+
     for row in run_report(date_range, create_question_report_request, verbose=verbose):
         path = row.dimension_values[0].value
-        num_page_views = int(row.metric_values[0].value)
-        # The path is guaranteed to be a question path without any query parameters.
-        # If the URL path for questions changes, we'll need to continue to support
-        # the previous URL structure for a year -- the longest period of time we look
-        # backwards -- as well as the new URL structure.
+        # The path should be a question path without any query parameters, but in reality
+        # we've seen that it can sometimes be "/". If the URL path for questions changes,
+        # we'll need to continue to support the previous URL structure for a year -- the
+        # longest period of time we look backwards -- as well as the new URL structure.
         # Current URL structure: /{locale}/questions/{question_id}
-        locale, question_id = path.strip("/").split("/questions/")
-        yield (int(question_id), num_page_views)
+        try:
+            num_page_views = int(row.metric_values[0].value)
+            locale, question_id = path.strip("/").split("/questions/")
+            question_id = int(question_id)
+        except ValueError:
+            continue
+
+        # The "run_report" will return one row for each unique question path. Since the
+        # path includes the locale, there can be multiple rows for each question, so we
+        # need to accumulate the sum of all of those rows.
+        pageviews_by_id[question_id] = pageviews_by_id.get(question_id, 0) + num_page_views
+
+    return pageviews_by_id
 
 
 def search_clicks_and_impressions(start_date, end_date, verbose=False):

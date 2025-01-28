@@ -11,25 +11,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const versionSelect = document.querySelector("#showfor-panel select.version");
     const platformSelect = document.querySelector("#showfor-panel select.platform");
 
-    // Track votes in GA.
-    document.addEventListener("vote", (event) => {
-      if (('helpful' in event.detail) || ('not-helpful' in event.detail)) {
-        trackEvent("article_vote", {
-          "vote": ("helpful" in event.detail) ? "helpful": "not-helpful",
-        });
-      }
-    });
-
     // Track showfor changes in GA.
     if (versionSelect) {
-      versionSelect.addEventListener("change", function(event) {
+      versionSelect.addEventListener("change", function (event) {
         trackEvent("showfor_version_change", {
           "showfor_version": this.value,
         });
       });
     }
     if (platformSelect) {
-      platformSelect.addEventListener("change", function(event) {
+      platformSelect.addEventListener("change", function (event) {
         trackEvent("showfor_platform_change", {
           "showfor_platform": this.value,
         });

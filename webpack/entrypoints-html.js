@@ -10,7 +10,7 @@ module.exports = Object.keys(entrypoints).map(entry =>
     chunks: [entry],
     inject: false,
     scriptLoading: "defer",
-    templateContent: ({htmlWebpackPlugin}) => {
+    templateContent: ({ htmlWebpackPlugin }) => {
       if (entry == "screen") {
         return `<link href="${htmlWebpackPlugin.files.css[0]}" rel="stylesheet" nonce="{{ request.csp_nonce }}">`;
       }

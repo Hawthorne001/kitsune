@@ -20,13 +20,13 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
  * Scripts for the wiki app.
  */
 
-(function($) {
+(function ($) {
   function init() {
     var $body = $('body');
 
     $('select.enable-if-js').prop("disabled", false);
 
-    if($body.is('.new')) {
+    if ($body.is('.new')) {
       initPrepopulatedSlugs();
     }
 
@@ -44,7 +44,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
     if ($body.is('.edit_metadata, .edit, .new, .translate')) { // Document form page
       // Submit form
-      $('#id_comment').on('keypress', function(e) {
+      $('#id_comment').on('keypress', function (e) {
         if (e.which === 13) {
           $(this).trigger('blur');
           $(this).closest('form').find('[type=submit]').trigger('click');
@@ -88,12 +88,14 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
     initRevisionList();
 
+    collapsibleContributorTools();
+
     $('img.lazy').lazyload();
   }
 
   function initArticleApproveModal() {
     if ($('#approve-modal').length > 0) {
-      var onSignificanceClick = function(e) {
+      var onSignificanceClick = function (e) {
         // Hiding if the significance is typo.
         // .parent() is because #id_is_ready_for_localization is inside a
         // <label>, as is the text
@@ -121,7 +123,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     // Execute the fallback only if there's no native `details` support
     if (!('open' in document.createElement('details'))) {
       // Loop through all `details` elements
-      $('details').each(function() {
+      $('details').each(function () {
         // Store a reference to the current `details` element in a variable
         var $details = $(this),
           // Store a reference to the `summary` element of the current `details` element (if any) in a variable
@@ -140,7 +142,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         // Look for direct child text nodes
         if ($detailsNotSummary.length !== $detailsNotSummaryContents.length) {
           // Wrap child text nodes in a `span` element
-          $detailsNotSummaryContents.filter(function() {
+          $detailsNotSummaryContents.filter(function () {
             // Only keep the node in the collection if it's a text node containing more than only whitespace
             return (this.nodeType === 3) && (/[^\t\n\r ]/.test(this.data));
           }).wrap('<span>');
@@ -157,7 +159,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         }
 
         // Set the `tabindex` attribute of the `summary` element to 0 to make it keyboard accessible
-        $detailsSummary.attr('tabindex', 0).on("click", function() {
+        $detailsSummary.attr('tabindex', 0).on("click", function () {
           // Focus on the `summary` element
           $detailsSummary.trigger('focus');
           // Toggle the `open` attribute of the `details` element
@@ -169,7 +171,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
           // Toggle the additional information in the `details` element
           $detailsNotSummary.slideToggle();
           $details.toggleClass('open');
-        }).on('keyup', function(event) {
+        }).on('keyup', function (event) {
           if (event.keyCode === 13 || event.keyCode === 32) {
             // Enter or Space is pressed -- trigger the `click` event on the `summary` element
             // Opera already seems to trigger the `click` event when Enter is pressed
@@ -193,7 +195,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       }
     };
 
-    $.each(fields, function(i, field) {
+    $.each(fields, function (i, field) {
       $(field.id).addClass('prepopulated_field');
       $(field.id).data('dependency_list', field.dependency_list)
         .prepopulate($(field.dependency_ids.join(',')),
@@ -208,7 +210,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       // length of a Google result
       warningCount = 160,
       maxCount = $summaryCount.text(),
-      updateCount = function() {
+      updateCount = function () {
         var currentCount = $summaryBox.val().length;
         $summaryCount.text(warningCount - currentCount);
         if (warningCount - currentCount >= 0) {
@@ -235,7 +237,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         contentElement: $('#id_content'),
         previewElement: $preview
       });
-    $(preview).on('done', function(e, success) {
+    $(preview).on('done', function (e, success) {
       if (success) {
         $previewBottom.show();
         new ShowFor();
@@ -253,7 +255,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       $previewBottom = $('#preview-bottom'),
       $diffButton = $('.btn-diff');
     $diff.addClass('diff-this');
-    $diffButton.on("click", function() {
+    $diffButton.on("click", function () {
       $diff.find('.to').text($('#id_content').val());
       initDiff($diff.parent());
       $previewBottom.show();
@@ -262,7 +264,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
   }
 
   function initTitleAndSlugCheck() {
-    $('#id_title').on('change', function() {
+    $('#id_title').on('change', function () {
       var $this = $(this),
         $form = $this.closest('form'),
         title = $this.val(),
@@ -272,7 +274,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       // off change event.
       verifySlugUnique(slug, $form);
     });
-    $('#id_slug').on('change', function() {
+    $('#id_slug').on('change', function () {
       var $this = $(this),
         $form = $this.closest('form'),
         slug = $('#id_slug').val();
@@ -299,7 +301,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         type: 'GET',
         data: data,
         dataType: 'json',
-        success: function(json) {
+        success: function (json) {
           // Success means we found an existing doc
           var docId = $form.data('document-id');
           if (!docId || (json.id && json.id !== parseInt(docId))) {
@@ -311,7 +313,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
             );
           }
         },
-        error: function(xhr, error) {
+        error: function (xhr, error) {
           if (xhr.status === 405) {
             // We are good!!
           } else {
@@ -329,7 +331,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     var $modal = $('#submit-modal'),
       kbox = $modal.data('kbox');
     kbox.updateOptions({
-      preOpen: function() {
+      preOpen: function () {
         var form = $('.btn-submit').closest('form')[0];
         if (form.checkValidity && !form.checkValidity()) {
           // If form isn't valid, click the modal submit button
@@ -344,7 +346,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         $modal.find('#id_comment').prop('required', true);
         return true;
       },
-      preClose: function() {
+      preClose: function () {
         // Remove the required attribute so validation doesn't
         // fail after clicking cancel.
         $modal.find('#id_comment').prop('required', false);
@@ -355,15 +357,15 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
   // The diff revision picker
   function initDiffPicker() {
-    $('div.revision-diff').each(function() {
+    $('div.revision-diff').each(function () {
       var $diff = $(this);
-      $diff.find('div.picker a').off().on("click", function(ev) {
+      $diff.find('div.picker a').off().on("click", function (ev) {
         ev.preventDefault();
         $.ajax({
           url: $(this).attr('href'),
           type: 'GET',
           dataType: 'html',
-          success: function(html) {
+          success: function (html) {
             var kbox = new KBox(html, {
               modal: true,
               id: 'diff-picker-kbox',
@@ -374,7 +376,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
             kbox.open();
             ajaxifyDiffPicker(kbox.$kbox.find('form'), kbox, $diff);
           },
-          error: function() {
+          error: function () {
             var message = gettext('There was an error.');
             alert(message);
           }
@@ -384,14 +386,14 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
   }
 
   function ajaxifyDiffPicker($form, kbox, $diff) {
-    $form.on("submit", function(ev) {
+    $form.on("submit", function (ev) {
       ev.preventDefault();
       $.ajax({
         url: $form.attr('action'),
         type: 'GET',
         data: $form.serialize(),
         dataType: 'html',
-        success: function(html) {
+        success: function (html) {
           var $container = $diff.parent();
           kbox.close();
           $diff.replaceWith(html);
@@ -406,26 +408,26 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     var $watchDiv = $('#revision-list .l10n'),
       post_url, checkbox_id;
 
-    $watchDiv.find('a.markasready').on("click", function() {
+    $watchDiv.find('a.markasready').on("click", function () {
       var $check = $(this);
       post_url = $check.data('url');
       checkbox_id = $check.attr('id');
       $('#ready-for-l10n-modal span.revtime').html('(' + $check.data('revdate') + ')');
     });
 
-    $('#ready-for-l10n-modal input[type=submit], #ready-for-l10n-modal button[type=submit]').on("click", function() {
+    $('#ready-for-l10n-modal input[type=submit], #ready-for-l10n-modal button[type=submit]').on("click", function () {
       var csrf = $('#ready-for-l10n-modal input[name=csrfmiddlewaretoken]').val();
       if (post_url !== undefined && checkbox_id !== undefined) {
         $.ajax({
           type: 'POST',
           url: post_url,
           data: { csrfmiddlewaretoken: csrf },
-          success: function(response) {
+          success: function (response) {
             $('#' + checkbox_id).removeClass('markasready').addClass('yes');
             $('#' + checkbox_id).off('click');
             Mzp.Modal.closeModal()
           },
-          error: function() {
+          error: function () {
             Mzp.Modal.closeModal()
           }
         });
@@ -438,8 +440,8 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     // "Needs change" checkbox. Also, make the textarea required
     // when checked.
     var $checkbox = $('#id_needs_change'),
-    $comment = $('#id_needs_change_comment'),
-    $commentlabel = $('label[for="id_needs_change_comment"]');
+      $comment = $('#id_needs_change_comment'),
+      $commentlabel = $('label[for="id_needs_change_comment"]');
 
     if ($checkbox.length > 0) {
       updateComment();
@@ -461,11 +463,11 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
   function watchDiscussion() {
     // For a thread on the all discussions for a locale.
-    $('.watch-form').on("click", function() {
+    $('.watch-form').on("click", function () {
       var form = $(this);
-      $.post(form.attr('action'), form.serialize(), function() {
+      $.post(form.attr('action'), form.serialize(), function () {
         form.find('.watchtoggle').toggleClass('on');
-      }).error(function() {
+      }).error(function () {
         // error growl
       });
       return false;
@@ -474,9 +476,9 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
   function initEditingTools() {
     // Init the show/hide links for editing tools
-    $('#quick-links .edit a').on("click", function(ev) {
+    $('#quick-links .edit a').on("click", function (ev) {
       ev.preventDefault();
-      $('#doc-tabs').slideToggle('fast', function() {
+      $('#doc-tabs').slideToggle('fast', function () {
         $('body').toggleClass('show-editing-tools');
       });
 
@@ -495,7 +497,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     var editor = $("<div id='editor'></div>");
     var editor_wrapper = $("<div id='editor_wrapper'></div>");
 
-    var updateHighlightingEditor = function() {
+    var updateHighlightingEditor = function () {
       var currentEditor = window.highlighting.editor;
       if (!currentEditor) {
         return;
@@ -508,7 +510,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     var switch_link = $('<a></a>')
       .text(gettext('Toggle syntax highlighting'))
       .css({ textAlign: 'right', cursor: 'pointer', display: 'block' })
-      .on("click", function() {
+      .on("click", function () {
         if (editor_wrapper.css('display') === 'block') {
           editor_wrapper.css('display', 'none');
           $('#id_content').css('display', 'block');
@@ -519,7 +521,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         }
       })
 
-    var highlightingEnabled = function() {
+    var highlightingEnabled = function () {
       return editor_wrapper.css('display') === 'block';
     };
     window.highlighting.isEnabled = highlightingEnabled;
@@ -527,7 +529,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     editor_wrapper.append(editor);
     $('#id_content').after(switch_link).after(editor_wrapper).hide();
 
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
       var cm_editor = CodeMirror(document.getElementById('editor'), {
         mode: { 'name': 'sumo' },
         value: $('#id_content').val(),
@@ -540,7 +542,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       $('#id_content').on('keyup', updateHighlightingEditor);
       updateHighlightingEditor();
 
-      cm_editor.on('change', function(e) {
+      cm_editor.on('change', function (e) {
         if (!highlightingEnabled()) {
           return;
         }
@@ -558,7 +560,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       var $inputs = $doc.find('input:enabled, textarea:enabled')
         .prop('disabled', true);
     }
-    $('#unlock-button').on('click', function() {
+    $('#unlock-button').on('click', function () {
       $inputs.prop('disabled', false);
       $doc.removeClass('locked');
       $('#locked-warning').slideUp(500);
@@ -570,7 +572,6 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
       let xhr = new XMLHttpRequest();
       let csrf = document.querySelector('#steal-lock-form input[name=csrfmiddlewaretoken]').value;
-      console.log(csrf);
       xhr.open("POST", url)
       if (csrf) {
         xhr.setRequestHeader('X-CSRFToken', csrf);
@@ -589,7 +590,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
         .append(
           $('<a/>')
             .text(gettext('Toggle Diff'))
-            .on("click", function(e) {
+            .on("click", function (e) {
               e.preventDefault();
               $contentOrDiff.toggleClass('content diff');
             }));
@@ -601,7 +602,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
       url = $('.btn-draft').data('draft-url'),
       $draftMessage = $('#draft-message');
 
-    $draftButton.on("click", function() {
+    $draftButton.on("click", function () {
       var message = gettext('<strong>Draft is saving...</strong>'),
         image = `<img src="${spinnerImg}">`,
         bothData = $('#both_form').serializeArray(),
@@ -611,12 +612,12 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
       $draftMessage.html(image + message).removeClass('success error').addClass('info').show()
       $.post(url, totalData)
-        .done(function() {
+        .done(function () {
           var time = new Date(),
             message = interpolate(gettext('<strong>Draft has been saved on:</strong> %s'), [time]);
           $draftMessage.html(message).toggleClass('info success').show();
         })
-        .fail(function() {
+        .fail(function () {
           var message = gettext('<strong>Error saving draft</strong>');
           $draftMessage.html(message).toggleClass('info error').show();
         });
@@ -625,99 +626,101 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
 
   function initRevisionList() {
     var $form = $('#revision-list form.filter');
+
     if (!$form.length) {
       return;
     }
 
-    // This function grabs a fragment from the server and replaces
-    // the content of the div with it.
+    // Retrieve form data from sessionStorage, excluding pagination parameters
+    let formData = {};
+    const savedFormData = sessionStorage.getItem('revision-list-filter');
+
+    if (savedFormData) {
+      try {
+        formData = JSON.parse(savedFormData);
+      } catch (e) {
+        formData = {};
+        sessionStorage.removeItem('revision-list-filter');
+      }
+    }
+
+    // Populate form fields with saved data
+    for (let [name, value] of Object.entries(formData)) {
+      const field = $form.find(`[name="${name}"]`);
+      if (field.length) {
+        field.val(value);
+      }
+    }
+
+    // Only update if there are saved filters
+    if (Object.keys(formData).length > 0) {
+      updateRevisionList();
+    }
+
     function updateRevisionList(query) {
       if (query === undefined) {
         query = $form.serialize();
       }
+
       if (query.charAt(0) !== '?') {
         query = '?' + query;
       }
+
+      // Preserve any existing page parameter from the URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const pageParam = urlParams.get('page');
+      if (pageParam && !query.includes('page=')) {
+        query += `&page=${pageParam}`;
+      }
+
       var url = $form.attr('action') + query;
 
-      // scroll to the top.
-      var scrollPos = Math.min($(document).scrollTop(),
-        $('#revision-list').offset().top);
-      $(document).scrollTop(scrollPos);
-      history.replaceState({}, '', url);
       $('#revisions-fragment').css('opacity', 0);
-
-      $.get(url + '&fragment=1', function(data) {
+      $.get(url + '&fragment=1', function (data) {
         $('.loading').hide();
         $('#revisions-fragment').html(data).css('opacity', 1);
+
+        // Update URL without triggering page reload
+        const newUrl = window.location.pathname + query;
+        window.history.pushState({}, '', newUrl);
       });
     }
 
-    // When the filter form changes, wait a tick and then update.
+    // Handle filter changes
     var timeout;
-    $form.on('change keyup', 'input, select', function() {
+    $form.on('input change', 'input, select', function () {
       $('.loading').show();
       clearTimeout(timeout);
-      timeout = setTimeout(updateRevisionList, 200);
+      timeout = setTimeout(function () {
+        updateRevisionList();
+      }, 200);
+
+      // Save filter state but exclude pagination
+      const currentData = $form.serializeArray()
+        .reduce((obj, item) => {
+          if (item.name !== 'page') {
+            obj[item.name] = item.value;
+          }
+          return obj;
+        }, {});
+      sessionStorage.setItem('revision-list-filter', JSON.stringify(currentData));
     });
 
-    // Catch page changes, replace with fragment loading.
-    $('#revision-list').on('click', '.pagination a', function() {
-      var query = $(this)[0].search;
-      updateRevisionList(query);
-      return false;
+    // Handle pagination clicks
+    $('#revisions-fragment').on('click', '.pagination a', function (e) {
+      e.preventDefault();
+      updateRevisionList($(this).attr('href').split('?')[1]);
     });
 
-    // Treat diff pages as fragments too, and insert them below the current row.
-    $('#revision-list').on('click', '.show-diff', function() {
-      var $this = $(this);
-
-      $this.hide();
-      $this.parent().find('.loading').show();
-
-      var $diffView = $('<div class="diff-view">')
-        .hide()
-        .appendTo($(this).parents('li').first());
-
-      var url = $this.attr('href');
-
-      $.get(url, function(html) {
-        $diffView.html(html);
-        // Change the "Edit this diff" button to a "close diff" button.
-        $diffView.find('.picker')
-          .html('<a href="" class="close-diff">Close diff</a>');
-        // show and hide things.
-        $diffView.slideDown();
-        $this.parent().find('.close-diff').show();
-        $this.parent().find('.loading').hide();
-
-        initDiff();
-      });
-
-      return false;
-    });
-
-    // This could be the close diff icon that replaces the open diff icon, or
-    // the close diff link inserted into the diff fragment.
-    $('#revision-list').on('click', '.close-diff', function() {
-      var $row = $(this).parents('li').first();
-      $row.find('.diff-view').slideUp(400, function() {
-        $row.find('.show-diff').show();
-        $row.find('.close-diff').hide();
-        $row.find('.diff-view').remove();
-      });
-      return false;
-    });
-
-    // Disable standard form submission
-    $form.find('.btn, .button').remove();
-    $form.on('keydown', function(e) {
-      // 13 is enter.
+    // Remove submit button and prevent form submission
+    $form.find('button, [type="submit"]').remove();
+    $form.on('keydown', function (e) {
       if (e.which === 13) {
-        return false;
+        e.preventDefault();
       }
     });
   }
+
 
   init();
 
@@ -726,12 +729,12 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     $('#toc').hide();
 
     // Make sections collapsable
-    $('#doc-content h1').each(function() {
+    $('#doc-content h1').each(function () {
       var $this = $(this);
       var $siblings = $(this).nextAll();
 
       var sectionElems = [];
-      $siblings.each(function() {
+      $siblings.each(function () {
         if ($(this).is('h1')) {
           return false;
         }
@@ -752,7 +755,7 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
     });
 
     // Make the header the trigger for toggling state
-    $('#doc-content').on('click', 'h1', function() {
+    $('#doc-content').on('click', 'h1', function () {
       $(this).closest('.wiki-section').toggleClass('collapsed');
     });
 
@@ -765,9 +768,25 @@ import collapsibleAccordionInit from "sumo/js/protocol-details-init";
   }
 
   function initExitSupportFor() {
-    $('#support-for-exit').on('click', function() {
+    $('#support-for-exit').on('click', function () {
       $('#support-for').remove();
     });
+  }
+
+  function collapsibleContributorTools() {
+    const showMoreLink = document.getElementById('show-more-link');
+    if (showMoreLink) {
+      const collapsibleContent = document.querySelector('.collapsible-content');
+
+      showMoreLink.addEventListener('click', (event) => {
+        event.preventDefault();
+
+        collapsibleContent.classList.toggle('expanded');
+        showMoreLink.classList.toggle('expanded');
+        showMoreLink.textContent = (showMoreLink.classList.contains('expanded')) ? 'Show Less' : 'Show More';
+      });
+    }
+
   }
 
 })(jQuery);

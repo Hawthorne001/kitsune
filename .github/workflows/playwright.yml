@@ -1,7 +1,7 @@
 name: Playwright Tests
 on:
     schedule:
-        # Playwright tests are running automatically in Firefox on each Monday & in Chrome on each Friday.
+        # Playwright tests are running automatically in Firefox on each Monday & in Chromium on each Friday.
         - cron: '0 5 * * 1,5'
     workflow_dispatch:
         inputs:
@@ -12,7 +12,7 @@ on:
                 type: choice
                 options:
                     - firefox
-                    - chrome
+                    - chromium
             TestSuite:
                 description: Test Suite to run
                 required: true
@@ -28,13 +28,18 @@ on:
                     - User Pages
                     - contactSupportPage
                     - productSolutionsPage
+                    - productSupportPage
                     - productTopicsPage
                     - AAQ
                     - KB Articles
-                    - KB Restricted Visibility
+                    - kbRestrictedVisibility
                     - KB Article Translation
                     - recentRevisionsDashboard
                     - kbDashboard
+                    - exploreByTopics
+                    - searchTests
+                    - userGroupsTests
+                    - antiSpamTests
 
 env:
     TEST_ACCOUNT_12: ${{secrets.AUTOMATION_TEST_ACCOUNT_12}}
@@ -49,6 +54,10 @@ env:
     TEST_ACCOUNTS_PS: ${{secrets.AUTOMATION_ACCOUNTS_PASSWORD}}
     TEST_ACCOUNT_MODERATOR: ${{secrets.AUTOMATION_MODERATOR_ACCOUNT}}
     BROWSER: ${{secrets.BROWSER}}
+    DATABASE_URL: postgres://kitsune:kitsune@postgres:5432/kitsune
+    SECRET_KEY: secret
+    REDIS_DEFAULT_URL=: edis://redis:6379/1
+    REDIS_HELPFULVOTES_URL: redis://redis:6379/2
 
 
 jobs:
@@ -66,6 +75,9 @@ jobs:
           sudo apt-get update
           pip3 install --user poetry
           poetry install
+      - name: Download NLTK Data
+        run: |
+          poetry run python -m nltk.downloader wordnet omw-1.4
       - name: Ensure Playwright browsers are installed
         run: |
             pip3 install playwright
@@ -78,7 +90,7 @@ jobs:
                 if [ $current_day -eq 1 ]; then
                     echo "BROWSER=firefox" >> $GITHUB_ENV
                 elif [ $current_day -eq 5 ]; then
-                    echo "BROWSER=chrome" >> $GITHUB_ENV
+                    echo "BROWSER=chromium" >> $GITHUB_ENV
                 fi
             elif [ "${{ github.event_name }}" == 'workflow_dispatch' ]; then
                 echo "BROWSER=${{inputs.Browsers}}" >> $GITHUB_ENV
@@ -93,43 +105,37 @@ jobs:
         if: success() || failure() && steps.create-sessions.outcome == 'success'
         run: |
             declare dispatch_test_suite="${{inputs.TestSuite}}"
-            declare all_test_suites=("homePageTests" "topNavbarTests" "footerSectionTests" "contributePagesTests" "messagingSystem" "messagingSystemCleanup" "userContributionTests" "userProfile" "userSettings" "editUserProfileTests" "userQuestions" "contactSupportPage" "productSolutionsPage" "productTopicsPage" "aaqPage" "postedQuestions" "kbProductsPage" "kbArticleCreationAndAccess" "beforeThreadTests" "articleThreads" "afterThreadTests" "kbArticleShowHistory" "recentRevisionsDashboard" "kbDashboard" "restrictedArticleCreation" "kbRestrictedVisibilitySingleGroup" "whitelistingDifferentGroup" "kbRestrictedVisibilityMultipleGroups" "removingAllArticleRestrictions" "kbRemovedRestrictions" "deleteAllRestrictedTestArticles" "kbArticleTranslation")
+            declare all_test_suites=("homePageTests" "topNavbarTests" "footerSectionTests" "contributePagesTests" "messagingSystem" "messagingSystemCleanup" "userContributionTests" "userProfile" "userSettings" "editUserProfileTests" "userQuestions" "contactSupportPage" "productSolutionsPage" "productSupportPage" "productTopicsPage" "aaqPage" "postedQuestions" "kbProductsPage" "kbArticleCreationAndAccess" "beforeThreadTests" "articleThreads" "afterThreadTests" "kbArticleShowHistory" "recentRevisionsDashboard" "kbDashboard" "kbRestrictedVisibility" "kbArticleTranslation" "exploreByTopics" "searchTests" "userGroupsTests", "antiSpamTests")
             if [ "$dispatch_test_suite" == "All" ] || [ "${{ github.event_name}}" == "schedule" ] ; then
                 for test in "${all_test_suites[@]}"; do
-                    if ! poetry run pytest -m ${test} --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
+                    if ! poetry run pytest -m ${test} --numprocesses 6 --browser ${{ env.BROWSER }} --reruns 2; then
                         any_failures=true
                     fi
                 done
             elif [ "$dispatch_test_suite" == "User Pages" ]; then
                 for test in "userContributionTests" "userProfile" "userSettings" "editUserProfileTests" "userQuestions"; do
-                    if ! poetry run pytest -m ${test} --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
+                    if ! poetry run pytest -m ${test} --numprocesses 6 --browser ${{ env.BROWSER }} --reruns 2; then
                         any_failures=true
                     fi
                 done
             elif [ "$dispatch_test_suite" == "AAQ" ]; then
                 for test in "aaqPage" "postedQuestions"; do
-                    if ! poetry run pytest -m ${test} --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
+                    if ! poetry run pytest -m ${test} --numprocesses 6 --browser ${{ env.BROWSER }} --reruns 2; then
                         any_failures=true
                     fi
                 done
             elif [ "$dispatch_test_suite" == "KB Articles" ]; then
                 for test in "kbProductsPage" "kbArticleCreationAndAccess" "beforeThreadTests" "articleThreads" "afterThreadTests" "kbArticleShowHistory"; do
-                    if ! poetry run pytest -m ${test} --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
-                        any_failures=true
-                    fi
-                done
-            elif [ "$dispatch_test_suite" == "KB Restricted Visibility" ]; then
-                for test in "restrictedArticleCreation" "kbRestrictedVisibilitySingleGroup" "whitelistingDifferentGroup" "kbRestrictedVisibilityMultipleGroups" "removingAllArticleRestrictions" "kbRemovedRestrictions"  "deleteAllRestrictedTestArticles"; do
-                    if ! poetry run pytest -m ${test} --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
+                    if ! poetry run pytest -m ${test} --numprocesses 6 --browser ${{ env.BROWSER }} --reruns 2; then
                         any_failures=true
                     fi
                 done
             elif [ "$dispatch_test_suite" == "KB Article Translation" ]; then
-                if ! poetry run pytest -m kbArticleTranslation --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
+                if ! poetry run pytest -m kbArticleTranslation --numprocesses 6 --browser ${{ env.BROWSER }} --reruns 2; then
                     any_failures=true
                 fi
             else
-                if ! poetry run pytest -m $dispatch_test_suite --numprocesses 2 --browser ${{ env.BROWSER }} --reruns 1; then
+                if ! poetry run pytest -m $dispatch_test_suite --numprocesses 6 --browser ${{ env.BROWSER }} --reruns 2; then
                         any_failures=true
                 fi
             fi
@@ -138,13 +144,13 @@ jobs:
         working-directory: playwright_tests
         if: success() || failure()
         run: |
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
-            brew install allure
+            curl -o allure-2.32.0.tgz -L https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/2.32.0/allure-commandline-2.32.0.tgz
+            tar -zxvf allure-2.32.0.tgz
+            export PATH=$PATH:$PWD/allure-2.32.0/bin
             allure generate --single-file reports/allure_reports
       - name: Upload the combined test report as artifact
         if: success() || failure()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: Playwright test report
           path: |

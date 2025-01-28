@@ -8,7 +8,7 @@ from django.contrib.sites.models import Site
 from django.test import Client
 from pyquery import PyQuery as pq
 
-from kitsune.products.tests import ProductFactory
+from kitsune.products.tests import ProductFactory, TopicFactory
 from kitsune.sumo.redis_utils import RedisError, redis_client
 from kitsune.sumo.tests import SkipTest, TestCase, template_used
 from kitsune.sumo.urlresolvers import reverse
@@ -26,7 +26,6 @@ from kitsune.wiki.tests import (
     ApprovedRevisionFactory,
     DocumentFactory,
     DraftRevisionFactory,
-    HelpfulVoteFactory,
     RedirectRevisionFactory,
     RevisionFactory,
     TemplateDocumentFactory,
@@ -1656,11 +1655,13 @@ class DocumentEditingTests(TestCase):
         d = r.document
         prod_desktop = ProductFactory(title="desktop")
         prod_mobile = ProductFactory(title="mobile")
+        topic = TopicFactory(products=[prod_desktop, prod_mobile])
 
         data = new_document_data()
         data.update(
             {
                 "products": [prod_desktop.id, prod_mobile.id],
+                "topics": [topic.id],
                 "title": d.title,
                 "slug": d.slug,
                 "form": "doc",
@@ -1952,66 +1953,6 @@ class VoteTests(TestCase):
             reverse("wiki.document_vote", args=["hi"]), {"revision_id": r.id}
         )
         self.assertEqual(400, response.status_code)
-
-    def test_unhelpful_survey(self):
-        """The unhelpful survey is stored as vote metadata"""
-        vote = HelpfulVoteFactory()
-        url = reverse("wiki.unhelpful_survey")
-        data = {
-            "vote_id": vote.id,
-            "button": "Submit",
-            "confusing": 1,
-            "too-long": 1,
-            "comment": "lorem ipsum dolor",
-        }
-        response = self.client.post(url, data)
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(b'{"message": "Thanks for making us better!"}', response.content)
-
-        vote_meta = vote.metadata.all()
-        self.assertEqual(1, len(vote_meta))
-        self.assertEqual("survey", vote_meta[0].key)
-
-        survey = json.loads(vote_meta[0].value)
-        self.assertEqual(3, len(list(survey.keys())))
-        assert "confusing" in survey
-        assert "too-long" in survey
-        self.assertEqual("lorem ipsum dolor", survey["comment"])
-
-        # Posting the survey again shouldn't add a new survey result.
-        self.client.post(url, data)
-        self.assertEqual(1, vote.metadata.filter(key="survey").count())
-
-    def test_unhelpful_survey_on_helpful_vote(self):
-        """Verify a survey doesn't get saved on helpful votes."""
-        vote = HelpfulVoteFactory(helpful=True)
-        url = reverse("wiki.unhelpful_survey")
-        data = {
-            "vote_id": vote.id,
-            "button": "Submit",
-            "confusing": 1,
-            "too-long": 1,
-            "comment": "lorem ipsum dolor",
-        }
-        self.client.post(url, data)
-        self.assertEqual(0, vote.metadata.count())
-
-    def test_unhelpful_truncation(self):
-        """Give helpful_vote a survey that is too long.
-
-        It should be truncated safely, instead of generating bad JSON.
-        """
-        vote = HelpfulVoteFactory()
-        too_long_comment = ("lorem ipsum" * 100) + "bad data"
-        self.client.post(
-            reverse("wiki.unhelpful_survey"),
-            {"vote_id": vote.id, "button": "Submit", "comment": too_long_comment},
-        )
-        vote_meta = vote.metadata.all()[0]
-        # Will fail if it is not proper json, ie: bad truncation happened.
-        survey = json.loads(vote_meta.value)
-        # Make sure the right value was truncated.
-        assert "bad data" not in survey["comment"]
 
     def test_source(self):
         """Test that the source metadata field works."""
@@ -2361,6 +2302,101 @@ class FallbackSystem(TestCase):
             )
             self.assertNotIn(en_content, doc_content)
             self.assertIn("This article is translated into pt-BR", doc_content)
+
+    def test_skip_of_document_cache_when_fallback_uses_accept_language(self):
+        en_doc, es_doc = self.create_documents("es")
+        url = reverse("wiki.document", args=[en_doc.slug], locale="fr")
+
+        # First, request the document in French via the English slug. Since a
+        # French translation doesn't exist, the Accept-Language header is used
+        # to determine that the Spanish translation can be returned instead.
+        # This shouldn't be cached, because the response depends on the user's
+        # Accept-Language header.
+        headers = {"accept-language": "fr;q=0.8,es;q=0.7"}
+        response = self.client.get(url, headers=headers)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("vary", response)
+        self.assertIn("accept-language", response["vary"])
+        doc = pq(response.content)
+        self.assertEqual(doc("html").attr("lang"), "fr")
+        self.assertEqual(doc("html").attr("data-ga-article-locale"), "es")
+        self.assertIn("This article is translated into es", doc("#doc-content").text())
+
+        # If another user makes the same request, the French content via the
+        # English slug, but this user will only accept English content as a
+        # fallback, then let's make sure the previous request wasn't cached,
+        # because if it was cached, the Spanish content would be returned.
+        headers = {"accept-language": "fr;q=0.8,en-us;q=0.7"}
+        response = self.client.get(url, headers=headers)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("vary", response)
+        self.assertIn("accept-language", response["vary"])
+        doc = pq(response.content)
+        doc_content = doc("#doc-content").text()
+        self.assertEqual(doc("html").attr("lang"), "fr")
+        self.assertEqual(doc("html").attr("data-ga-article-locale"), "en-US")
+        self.assertIn("This article is in English", doc_content)
+
+    def test_vary_header_when_fallback_uses_accept_language(self):
+        en_doc, es_doc = self.create_documents("es")
+        url = reverse("wiki.document", args=[en_doc.slug], locale="fr")
+
+        with self.subTest("default in accept-language"):
+            headers = {"accept-language": "fr;q=0.8,en-us;q=0.7"}
+            response = self.client.get(url, headers=headers)
+            self.assertEqual(200, response.status_code)
+            self.assertIn("vary", response)
+            self.assertIn("accept-language", response["vary"])
+            doc = pq(response.content)
+            self.assertEqual(doc("html").attr("lang"), "fr")
+            self.assertEqual(doc("html").attr("data-ga-article-locale"), "en-US")
+            self.assertIn("This article is in English", doc("#doc-content").text())
+
+        with self.subTest("another translation in accept-language"):
+            headers = {"accept-language": "fr;q=0.8,es;q=0.7"}
+            response = self.client.get(url, headers=headers)
+            self.assertEqual(200, response.status_code)
+            self.assertIn("vary", response)
+            self.assertIn("accept-language", response["vary"])
+            doc = pq(response.content)
+            self.assertEqual(doc("html").attr("lang"), "fr")
+            self.assertEqual(doc("html").attr("data-ga-article-locale"), "es")
+            self.assertIn("This article is translated into es", doc("#doc-content").text())
+
+        with self.subTest("hard-coded fallback in accept-language"):
+            headers = {"accept-language": "fr;q=0.8,ca;q=0.7"}
+            response = self.client.get(url, headers=headers)
+            self.assertEqual(200, response.status_code)
+            self.assertIn("vary", response)
+            self.assertIn("accept-language", response["vary"])
+            doc = pq(response.content)
+            self.assertEqual(doc("html").attr("lang"), "fr")
+            self.assertEqual(doc("html").attr("data-ga-article-locale"), "es")
+            self.assertIn("This article is translated into es", doc("#doc-content").text())
+
+        with self.subTest("no fallback found"):
+            headers = {"accept-language": "fr;q=0.8"}
+            response = self.client.get(url, headers=headers)
+            self.assertEqual(200, response.status_code)
+            self.assertIn("vary", response)
+            self.assertIn("accept-language", response["vary"])
+            doc = pq(response.content)
+            self.assertEqual(doc("html").attr("lang"), "fr")
+            self.assertEqual(doc("html").attr("data-ga-article-locale"), "en-US")
+            self.assertIn("This article is in English", doc("#doc-content").text())
+
+    def test_vary_header_when_fallback_does_not_use_accept_language(self):
+        en_doc, es_doc = self.create_documents("es")
+        url = reverse("wiki.document", args=[en_doc.slug], locale="ca")
+        headers = {"accept-language": "en-us;q=0.8"}
+        response = self.client.get(url, headers=headers)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("vary", response)
+        self.assertNotIn("accept-language", response["vary"])
+        doc = pq(response.content)
+        self.assertEqual(doc("html").attr("lang"), "ca")
+        self.assertEqual(doc("html").attr("data-ga-article-locale"), "es")
+        self.assertIn("This article is translated into es", doc("#doc-content").text())
 
 
 class PocketArticleTests(TestCase):

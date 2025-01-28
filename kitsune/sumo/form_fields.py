@@ -4,6 +4,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.core import validators
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.utils.translation import gettext as _
 
 
@@ -54,8 +55,11 @@ class TypedMultipleChoiceField(forms.MultipleChoiceField):
 
 
 class MultiUsernameField(forms.Field):
-    """Form field that takes a comma-separated list of usernames as input,
-    validates that users exist for each one, and returns the list of users."""
+    """
+    Form field that takes a comma-separated list of usernames OR profile
+    names (display names) as input, validates that users exist for each one,
+    and returns the list of users.
+    """
 
     def to_python(self, value):
         if not value:
@@ -65,20 +69,14 @@ class MultiUsernameField(forms.Field):
                 return []
 
         users = []
-        for username in value.split(","):
-            username = username.strip()
-            msg = ""
-            if username:
-                try:
-                    user = User.objects.get(username=username)
+        usernames = [name.strip() for name in value.split(",") if name]
+        if usernames:
+            all_users = User.objects.filter(
+                Q(username__in=usernames) | Q(profile__name__in=usernames)
+            )
+            for user in all_users:
+                if user and user.is_active:
                     users.append(user)
-                except User.DoesNotExist:
-                    msg = _("{username} is not a valid username.")
-                else:
-                    if not user.is_active:
-                        msg = _("{username} is not an active user.")
-                if msg:
-                    raise forms.ValidationError(msg.format(username=username))
 
         return users
 
@@ -109,7 +107,7 @@ class MultiUsernameOrGroupnameField(forms.Field):
         for key, value in key_value_pairs:
             # check if the value is a valid username in the database
             if key.lower() == "user" and not User.objects.filter(username=value).exists():
-                raise ValidationError(_(f"{value} is not a valid username."))
+                raise ValidationError(_("{name} is not a valid username.").format(name=value))
             to_objects.setdefault(f"{key.lower()}s", []).append(value)
 
         return to_objects

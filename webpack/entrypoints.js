@@ -4,6 +4,8 @@ const entrypoints = {
     "sumo/js/i18n.js",
     "sumo/js/kbox.js",
     "sumo/js/main.js",
+    "sumo/js/htmx.js",
+    "sumo/js/alpine.js",
     "sumo/js/geoip-locale.js",
     "sumo/js/ui.js",
     "sumo/js/analytics.js",
@@ -41,7 +43,6 @@ const entrypoints = {
   ],
   questions: [
     "sumo/js/questions.js",
-    "sumo/js/tags.filter.js",
     "sumo/js/tags.js",
     "sumo/js/reportabuse.js",
     "sumo/js/questions.metrics.js",
@@ -53,8 +54,8 @@ const entrypoints = {
   "questions.geo": [
     "sumo/js/location.js",
   ],
-  products: [
-    "sumo/js/products.js",
+  topics: [
+    "sumo/js/topics.js",
   ],
   search: [
     "sumo/js/search.js",
@@ -106,6 +107,9 @@ const entrypoints = {
   ],
   contribute: [
     "./svelte/contribute",
+  ],
+  flagit: [
+    "sumo/js/flagit.js",
   ]
 }
 

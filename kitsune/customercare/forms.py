@@ -56,7 +56,7 @@ class ZendeskForm(forms.Form):
     description = forms.CharField(
         label=_lazy("Tell us more"), widget=forms.Textarea(), required=False
     )
-    country = forms.CharField(widget=forms.HiddenInput)
+    country = forms.CharField(widget=forms.HiddenInput, required=False)
 
     def __init__(self, *args, product, user=None, **kwargs):
         kwargs.update({"initial": {"product": product.slug}})
@@ -70,6 +70,6 @@ class ZendeskForm(forms.Form):
         if product.slug not in PRODUCTS_WITH_OS:
             del self.fields["os"]
 
-    def send(self, user, product_config):
+    def send(self, user, product):
         client = ZendeskClient()
-        return client.create_ticket(user, self.cleaned_data, product_config)
+        return client.create_ticket(user, self.cleaned_data, product)

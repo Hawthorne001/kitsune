@@ -7,33 +7,27 @@
   <div class="sumo-page-section--inner">
     <div id="product-picker" class="sumo-card-grid stack-on-mobile">
       <div class="scroll-wrap">
-        {% for key, product in products.items() %}
-        <div class="card card--product zoom-on-hover">
-          {% if key == 'other' %}
-          <img src="{{ webpack_static('sumo/img/mozilla-icon.png') }}"
-              alt="{{ _(product.name) }}"
-              class="card--icon">
-          {% else %}
-          <img src="{{ image_for_product(product.product) }}"
+        {% for product in products %}
+          <div class="card card--product zoom-on-hover">
+          <img src="{{ product.image_alternate_url }}"
               alt="{{ pgettext('DB: products.Product.title', product.title) }}"
               class="card--icon">
-          {% endif %}
 
-          <div class="card--details">
-            <h3 class="card--title">
-              <a class="expand-this-link title"
-                href="{{ url('questions.aaq_step2', product_key=key) }}"
-                data-event-name="link_click"
-                data-event-parameters='{
-                  "link_name": "aaq-step-2",
-                  "link_detail": "{{ product.slug }}"
-                }'>
-                {{ product.name }}
-              </a>
-            </h3>
-            <p class="card--desc">{{ product.subtitle }}</p>
+            <div class="card--details">
+              <h3 class="card--title">
+                <a class="expand-this-link title"
+                  href="{{ url('questions.aaq_step2', product_slug=product.slug) }}"
+                  data-event-name="link_click"
+                  data-event-parameters='{
+                    "link_name": "aaq-step-2",
+                    "link_detail": "{{ product.slug }}"
+                  }'>
+                  {{ product.title }}
+                </a>
+              </h3>
+              <p class="card--desc">{{ product.description }}</p>
+            </div>
           </div>
-        </div>
         {% endfor %}
         <div class="card card--centered-button">
           <a class="sumo-button primary-button button-lg" href="{{ url('questions.home') }}">{{ _('Browse All Product Forums')}}</a>
@@ -43,7 +37,7 @@
   </div>
 {%- endmacro %}
 
-{% macro progress_bar(step, product_key=None) %}
+{% macro progress_bar(step, product_slug=None) %}
   <ul class="progress">
     <li class="progress--item {% if step > 1 %}is-complete{% elif step == 1 %}is-current{% endif %}">
       <a class="progress--link"
@@ -64,8 +58,8 @@
     </li>
     <li class="progress--item {% if step > 2 %}is-complete{% elif step == 2 %}is-current{% endif %}">
       <a class="progress--link"
-        {% if step == 3 and product_key %}
-          href="{{ url('questions.aaq_step2', product_key) }}"
+        {% if step == 3 and product_slug %}
+          href="{{ url('questions.aaq_step2', product_slug) }}"
         {% else %}
           href="#" disabled
         {% endif %}>
@@ -86,55 +80,60 @@
   </ul>
 {%- endmacro %}
 
-{% macro aaq_widget(request, location="aaq") %}
+{% macro aaq_widget(request, location="aaq", topic=None) %}
   {% set aaq_context = request.session.get("aaq_context") %}
-  {% if aaq_context %}
-    <div class="aaq-widget card is-inverse elevation-01 text-center radius-md">
-      <h2 class="card--title has-bottom-margin">
-        <svg class="card--icon-sm" width="24px" height="24px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
-            <g transform="translate(2.000000, 1.878680)" stroke="#FFFFFF" stroke-width="2">
-              <path d="M9,1.12132031 L2,1.12132031 C0.8954305,1.12132031 5.32907052e-15,2.01675081 5.32907052e-15,3.12132031 L5.32907052e-15,15.1213203 C5.32907052e-15,16.2258898 0.8954305,17.1213203 2,17.1213203 L11,17.1213203 L13,21.1213203 L15,17.1213203 L17,17.1213203 C18.1045695,17.1213203 19,16.2258898 19,15.1213203 L19,9.12132031"></path>
-              <path d="M15.5,0.621320312 C16.3284271,-0.207106783 17.6715729,-0.207106769 18.5,0.621320344 C19.3284271,1.44974746 19.3284271,2.79289318 18.5,3.62132031 L11,11.1213203 L7,12.1213203 L8,8.12132031 L15.5,0.621320312 Z"></path>
-            </g>
+  <div class="aaq-widget card is-inverse elevation-01 text-center radius-md">
+    <h2 class="card--title has-bottom-margin">
+      <svg class="card--icon-sm" width="24px" height="24px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+          <g transform="translate(2.000000, 1.878680)" stroke="#FFFFFF" stroke-width="2">
+            <path d="M9,1.12132031 L2,1.12132031 C0.8954305,1.12132031 5.32907052e-15,2.01675081 5.32907052e-15,3.12132031 L5.32907052e-15,15.1213203 C5.32907052e-15,16.2258898 0.8954305,17.1213203 2,17.1213203 L11,17.1213203 L13,21.1213203 L15,17.1213203 L17,17.1213203 C18.1045695,17.1213203 19,16.2258898 19,15.1213203 L19,9.12132031"></path>
+            <path d="M15.5,0.621320312 C16.3284271,-0.207106783 17.6715729,-0.207106769 18.5,0.621320344 C19.3284271,1.44974746 19.3284271,2.79289318 18.5,3.62132031 L11,11.1213203 L7,12.1213203 L8,8.12132031 L15.5,0.621320312 Z"></path>
           </g>
-        </svg>
+        </g>
+      </svg>
 
-        {{ _('Still need help?') }}
-      </h2>
-      {% if aaq_context.has_ticketing_support %}
-        <p>{{ _('Send a message to our support team.') }}</p>
-      {% elif request.user.is_authenticated %}
-        <p>{{ _('Continue to post your question and get help.') }}</p>
-      {% else %}
-        <p>{{ _('Sign in/up to post your question and get help.') }}</p>
-      {% endif %}
-      {% if not aaq_context.has_public_forum and not aaq_context.has_ticketing_support %}
-        {% set link_name = "aaq-widget.community-support.kb-article" %}
-        {% set next_step = url('wiki.document', 'get-community-support')|urlparams(exit_aaq=1) %}
-      {% else %}
-        {% set link_name = "aaq-widget.aaq-step-3" %}
-        {% set next_step = url('questions.aaq_step3', product_key=aaq_context.key) %}
-      {% endif %}
-      <a class="sumo-button primary-button feature-box"
-        href="{{ next_step }}"
-        data-event-name="link_click"
-        data-event-parameters='{
-          "link_name": "{{ link_name }}",
-          "link_detail": "{{ aaq_context.key }}"
-        }'>
-        {% if aaq_context.has_ticketing_support %}
-          {{ _('Contact Support') }}
+      {{ _('Ask a Question') }}
+    </h2>
+    {% set link_detail = aaq_context.product_slug if aaq_context else topic %}
+    {% set has_support = aaq_context.has_ticketing_support if aaq_context else False %}
+    {% set has_forum = aaq_context.has_public_forum if aaq_context else False %}
+
+    {% if aaq_context %}
+      {% if request.user.is_authenticated %}
+        {% if has_support %}
+          <p>{{ _('Still need help? Continue to contact our support team.') }}</p>
         {% else %}
-          {{ _('Ask Now') }}
+          <p>{{ _('Still need help? Continue to ask your question on our forums.') }}</p>
         {% endif %}
-      </a>
+     {% else %}
+        {% if has_support %}
+          <p>{{ _('Still need help? Sign in to contact our support team.') }}</p>
+        {% else %}
+          <p>{{ _('Still need help? Sign in to ask your question on our forums.') }}</p>
+        {% endif %}
+      {% endif %}
+    {% else %}
+      <p>{{ _('Still need help? Continue to ask your question and get help.') }}</p>
+    {% endif %}
+
+    {% set link_name = "aaq-widget.community-support.kb-article" if not (has_support or has_forum) else "aaq-widget.aaq-step-3" %}
+    {% set next_step = url('wiki.document', 'get-community-support')|urlparams(exit_aaq=1) if not (has_support or has_forum or topic) else url('questions.aaq_step3', product_slug=aaq_context.product_slug) if aaq_context else url('questions.aaq_step1') %}
+
+    <a class="sumo-button primary-button feature-box"
+      href="{{ next_step }}"
+      data-event-name="link_click"
+      data-event-parameters='{
+        "link_name": "{{ link_name }}",
+        "link_detail": "{{ link_detail }}"
+      }'>
+      {{ _('Continue')}}
+    </a>
     </div>
-  {% endif %}
 {%- endmacro %}
 
 {% macro explore_solutions(product, search_box, featured, topics, request, has_ticketing_support=True) -%}
-{% set search_params = {'product': product.product} %}
+{% set search_params = {'product': product.slug} %}
 <section class="sumo-page-section question-masthead shade-bg">
   <div class="mzp-l-content">
 
@@ -146,14 +145,14 @@
 
     <div class="sumo-l-two-col sidebar-on-right align-center cols-on-medium">
       <div class="sumo-l-two-col--main home-search-section--content">
-        <img class="page-heading--logo" src="{{ image_for_product(product.product) }}" alt="{{ product.name }} logo">
+        <img class="page-heading--logo" src="{{ product.image_alternate_url }}" alt="{{ product.title }} logo">
         <h1 class="sumo-page-heading ">
-          <span class="product-title-text">{{ product.name }} {{ _('Solutions') }}</span>
+          <span class="product-title-text">{{ product.title }} {{ _('Solutions') }}</span>
         </h1>
         {{ search_box(settings, id='question-search-masthead', params=search_params) }}
 
         <p class="page-heading--intro-text">
-            {{ _('Enter your question or keywords to find solutions in the knowledge base or forums') }}
+            {{ _('Browse our self-help options first or continue to ask your question and get help.') }}
         </p>
       </div>
       <div class="sumo-l-two-col--sidebar">
@@ -176,7 +175,7 @@
         <div class="text-center-to-left-on-large aaq-popular-topics">
           <h2 class="sumo-page-subheading">{{ _('Popular Topics') }}</h2>
         </div>
-        {{ help_topics(topics, product_slug=product.product, new_tab=True) }}
+        {{ help_topics(topics, product_slug=product.slug, new_tab=True) }}
       </div>
   </section>
 </div>

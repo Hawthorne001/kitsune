@@ -5,6 +5,7 @@ from pyquery import PyQuery as pq
 from kitsune.products.models import HOT_TOPIC_SLUG
 from kitsune.products.tests import ProductFactory, TopicFactory
 from kitsune.questions.models import QuestionLocale
+from kitsune.questions.tests import AAQConfigFactory
 from kitsune.search.tests import Elastic7TestCase
 from kitsune.sumo.urlresolvers import reverse
 from kitsune.wiki.tests import ApprovedRevisionFactory, DocumentFactory, HelpfulVoteFactory
@@ -19,7 +20,7 @@ class ProductViewsTestCase(Elastic7TestCase):
         locale, _ = QuestionLocale.objects.get_or_create(locale=settings.LANGUAGE_CODE)
         for i in range(3):
             p = ProductFactory(visible=True)
-            p.questions_locales.add(locale)
+            AAQConfigFactory(product=p, enabled_locales=[locale], is_active=True)
 
         # GET the products page and verify the content.
         r = self.client.get(reverse("products"), follow=True)
@@ -32,11 +33,11 @@ class ProductViewsTestCase(Elastic7TestCase):
         # Create a product.
         p = ProductFactory()
         locale, _ = QuestionLocale.objects.get_or_create(locale=settings.LANGUAGE_CODE)
-        p.questions_locales.add(locale)
+        AAQConfigFactory(product=p, enabled_locales=[locale], is_active=True)
 
         # Create some topics.
-        TopicFactory(slug=HOT_TOPIC_SLUG, product=p, visible=True)
-        topics = TopicFactory.create_batch(11, product=p, visible=True)
+        TopicFactory(slug=HOT_TOPIC_SLUG, products=[p], visible=True)
+        topics = TopicFactory.create_batch(11, products=[p], visible=True)
 
         # Create a document and assign the product and 10 topics.
         d = DocumentFactory(products=[p], topics=topics[:10])
@@ -63,8 +64,8 @@ class ProductViewsTestCase(Elastic7TestCase):
         """Verify /products/<product slug>/<topic slug> renders articles."""
         # Create a topic and product.
         p = ProductFactory()
-        t1 = TopicFactory(product=p)
-
+        t1 = TopicFactory(products=[p])
+        AAQConfigFactory(product=p)
         # Create 3 documents with the topic and product and one without.
         ApprovedRevisionFactory.create_batch(3, document__products=[p], document__topics=[t1])
         ApprovedRevisionFactory()
@@ -81,7 +82,8 @@ class ProductViewsTestCase(Elastic7TestCase):
         """Verify documents are sorted by display_order and number of helpful votes."""
         # Create topic, product and documents.
         p = ProductFactory()
-        t = TopicFactory(product=p)
+        t = TopicFactory(products=[p])
+        AAQConfigFactory(product=p)
         docs = []
         # FIXME: Can't we do this with create_batch and build the document
         # in the approvedrevisionfactory
@@ -133,7 +135,8 @@ class ProductViewsTestCase(Elastic7TestCase):
         """Verifies subtopics appear on document listing page."""
         # Create a topic and product.
         p = ProductFactory()
-        t = TopicFactory(product=p, visible=True)
+        t = TopicFactory(products=[p], visible=True)
+        AAQConfigFactory(product=p)
 
         # Create a documents with the topic and product
         doc = DocumentFactory(products=[p], topics=[t])
@@ -148,7 +151,7 @@ class ProductViewsTestCase(Elastic7TestCase):
 
         # Create a subtopic, it still shouldn't show up because no
         # articles are assigned.
-        subtopic = TopicFactory(parent=t, product=p, visible=True)
+        subtopic = TopicFactory(parent=t, products=[p], visible=True)
         r = self.client.get(url, follow=True)
         self.assertEqual(200, r.status_code)
         pqdoc = pq(r.content)
